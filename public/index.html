@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Agent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f13;
+      color: #e8e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #a78bfa;
+      margin-bottom: 32px;
+    }
+
+    #orb {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 40% 40%, #7c3aed, #4c1d95);
+      box-shadow: 0 0 40px #7c3aed44;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.2rem;
+      user-select: none;
+    }
+
+    #orb.listening {
+      animation: pulse 1.2s ease-in-out infinite;
+      box-shadow: 0 0 60px #7c3aedaa;
+    }
+
+    #orb.speaking {
+      animation: bounce 0.6s ease-in-out infinite alternate;
+      box-shadow: 0 0 60px #06b6d4aa;
+      background: radial-gradient(circle at 40% 40%, #0891b2, #164e63);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+
+    @keyframes bounce {
+      0% { transform: scale(1); }
+      100% { transform: scale(1.05); }
+    }
+
+    #status {
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: #6b7280;
+      letter-spacing: 0.03em;
+      min-height: 20px;
+    }
+
+    #transcript-box {
+      margin-top: 32px;
+      width: 100%;
+      max-width: 560px;
+      background: #1a1a24;
+      border: 1px solid #2d2d3d;
+      border-radius: 12px;
+      padding: 16px 20px;
+      min-height: 80px;
+      max-height: 300px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .message .label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .message.user .label { color: #a78bfa; }
+    .message.assistant .label { color: #06b6d4; }
+
+    .message .text {
+      font-size: 0.92rem;
+      line-height: 1.55;
+      color: #d1d5db;
+    }
+
+    #controls {
+      margin-top: 24px;
+      display: flex;
+      gap: 12px;
+    }
+
+    button {
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: 1px solid #2d2d3d;
+      background: #1a1a24;
+      color: #9ca3af;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    button:hover { background: #252535; color: #e8e8f0; }
+
+    #mic-btn {
+      background: #4c1d95;
+      border-color: #7c3aed;
+      color: #e8e8f0;
+      font-size: 0.88rem;
+      padding: 10px 24px;
+    }
+
+    #mic-btn:hover { background: #5b21b6; }
+    #mic-btn.active { background: #7c3aed; }
+  </style>
+</head>
+<body>
+  <h1>Voice Agent</h1>
+
+  <div id="orb" title="Click to speak">🎙️</div>
+  <div id="status">Click the orb or the button to start speaking</div>
+
+  <div id="transcript-box"></div>
+
+  <div id="controls">
+    <button id="mic-btn">Hold to speak</button>
+    <button id="reset-btn">Clear chat</button>
+  </div>
+
+  <script>
+    const orb = document.getElementById("orb");
+    const statusEl = document.getElementById("status");
+    const transcriptBox = document.getElementById("transcript-box");
+    const micBtn = document.getElementById("mic-btn");
+    const resetBtn = document.getElementById("reset-btn");
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      statusEl.textContent = "Speech recognition not supported in this browser. Try Chrome.";
+    }
+
+    const ws = new WebSocket(`ws://${location.host}`);
+    let recognition = null;
+    let currentAssistantEl = null;
+    let isSpeaking = false;
+    let utteranceQueue = [];
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === "thinking") {
+        setStatus("Thinking…");
+        appendAssistantBubble();
+      }
+
+      if (msg.type === "token") {
+        if (currentAssistantEl) {
+          currentAssistantEl.querySelector(".text").textContent += msg.text;
+          transcriptBox.scrollTop = transcriptBox.scrollHeight;
+        }
+      }
+
+      if (msg.type === "done") {
+        setStatus("Speaking…");
+        orb.className = "speaking";
+        speak(msg.fullText, () => {
+          orb.className = "";
+          setStatus("Click the orb or the button to start speaking");
+        });
+        currentAssistantEl = null;
+      }
+
+      if (msg.type === "error") {
+        setStatus(msg.message);
+        orb.className = "";
+        speak(msg.message);
+      }
+
+      if (msg.type === "reset_ok") {
+        transcriptBox.innerHTML = "";
+        setStatus("Conversation cleared");
+      }
+    };
+
+    function speak(text, onEnd) {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.05;
+      utter.pitch = 1;
+      utter.onend = onEnd || null;
+      window.speechSynthesis.speak(utter);
+    }
+
+    function startListening() {
+      if (!SpeechRecognition) return;
+      if (isSpeaking) window.speechSynthesis.cancel();
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        orb.className = "listening";
+        setStatus("Listening…");
+      };
+
+      recognition.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        appendUserMessage(text);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "user_speech", text }));
+        }
+      };
+
+      recognition.onerror = (e) => {
+        if (e.error !== "aborted") setStatus(`Error: ${e.error}`);
+        orb.className = "";
+      };
+
+      recognition.onend = () => {
+        if (orb.classList.contains("listening")) orb.className = "";
+      };
+
+      recognition.start();
+    }
+
+    function stopListening() {
+      if (recognition) {
+        recognition.stop();
+        recognition = null;
+      }
+    }
+
+    orb.addEventListener("click", startListening);
+
+    micBtn.addEventListener("mousedown", startListening);
+    micBtn.addEventListener("touchstart", (e) => { e.preventDefault(); startListening(); });
+    micBtn.addEventListener("mouseup", stopListening);
+    micBtn.addEventListener("mouseleave", stopListening);
+    micBtn.addEventListener("touchend", stopListening);
+
+    resetBtn.addEventListener("click", () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "reset" }));
+      }
+    });
+
+    function appendUserMessage(text) {
+      const el = document.createElement("div");
+      el.className = "message user";
+      el.innerHTML = `<span class="label">You</span><span class="text">${escapeHtml(text)}</span>`;
+      transcriptBox.appendChild(el);
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
+
+    function appendAssistantBubble() {
+      const el = document.createElement("div");
+      el.className = "message assistant";
+      el.innerHTML = `<span class="label">Agent</span><span class="text"></span>`;
+      transcriptBox.appendChild(el);
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+      currentAssistantEl = el;
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  </script>
+</body>
+</html>

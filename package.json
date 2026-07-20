@@ -1,0 +1,15 @@
+{
+  "name": "voice-agent",
+  "version": "1.0.0",
+  "description": "Live voice agent powered by Claude",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  }
+}
