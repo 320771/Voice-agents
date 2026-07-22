@@ -559,10 +559,13 @@
           }
         });
       } else {
-        // chat: no speaking, just reset state
-        orb.className = active ? "listening" : "";
-        setVoiceStatus(active ? "Listening… speak now" : "Click Start to begin talking");
-        if (active) listen();
+        // chat: no speaking — if voice session is on, restart mic
+        if (active) {
+          setTimeout(() => { if (active) listen(); }, 300);
+        } else {
+          orb.className = "";
+          setVoiceStatus("Click Start to begin talking");
+        }
       }
     }
 
@@ -593,10 +596,11 @@
     if (!fromVoice) {
       // Typed chat: show in chat column
       appendUserBubble(text);
+      // Pause mic while waiting for chat reply (will restart in done handler)
+      if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
+      setSendEnabled(false);
     }
-    // Both voice and chat appear in session context
     addContextTurn("user", text);
-    if (!fromVoice) setSendEnabled(false);
     ws.send(JSON.stringify({ type: "user_speech", text }));
   }
 
@@ -662,6 +666,8 @@
       setVoiceStatus("Use Chrome");
       return;
     }
+    // Always abort any existing instance before creating a new one
+    if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
     recognition = new SpeechRecognition();
     recognition.lang = "en-US";
     recognition.continuous = false;
