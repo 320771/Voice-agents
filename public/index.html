@@ -740,10 +740,10 @@
         const transcript = result[0].transcript.trim();
         const confidence = result[0].confidence || 0;
 
-        // Require at least 2 words OR 6 chars, and confidence > 0.5
+        // Require at least 3 words AND confidence > 0.65 — filters noise/coughs/TV
         const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-        if (wordCount < 2 && transcript.length < 6) continue;
-        if (confidence > 0 && confidence < 0.5) continue;
+        if (wordCount < 3) continue;
+        if (confidence > 0 && confidence < 0.65) continue;
 
         log("warn", "BARGE", `Barge-in: "${transcript.slice(0, 40)}" (conf=${confidence.toFixed(2)})`);
         stopBargeMonitor();
