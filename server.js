@@ -78,6 +78,7 @@ const conversationHistory = new Map();
 // ── Tool implementations ─────────────────────────────────────────────────────
 
 async function get_weather(city) {
+  if (!city || city.trim().length < 2) return "NEED_CITY";
   try {
     const geo = await fetch(
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`

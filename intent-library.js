@@ -678,9 +678,10 @@ const PARAM_EXTRACTORS = {
   weather: (text) => {
     const p = [
       /([A-Za-z]{3,25})\s+(?:ka|ki|ke|mein)\s+(?:weather|mausam|temperature|barish|baarish)/i,
-      /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein)\s+([A-Za-z]{3,25})/i,
-      /\b(?:in|at|for)\s+([A-Z][a-z]{2,20})\b/,
-      /([A-Z][a-z]{2,20}(?:\s+[A-Z][a-z]{2,20})?)\s+(?:weather|mausam)/i,
+      /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein)\s+([A-Za-z][A-Za-z\s]{2,20}?)(?:\s*[-,?]|$)/i,
+      /\b(?:in|at|for)\s+([A-Za-z][a-z]{2,20}(?:\s+[A-Za-z][a-z]{2,20})?)\b/i,
+      /\b(?:currently in|i(?:'m| am) in|visiting)\s+([A-Za-z][a-z]{2,20})/i,
+      /([A-Za-z][a-z]{2,20}(?:\s+[A-Za-z][a-z]{2,20})?)\s+(?:weather|mausam)/i,
     ];
     for (const rx of p) { const m = text.match(rx); if (m?.[1]?.trim().length > 2) return m[1].trim(); }
     return "";
