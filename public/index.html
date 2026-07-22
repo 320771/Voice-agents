@@ -689,17 +689,15 @@
     window.speechSynthesis.speak(_currentUtterance);
 
     // Chrome 15-second bug: speechSynthesis silently stops after ~14s.
-    // Heartbeat calls pause()+resume() every 10s to keep it alive.
+    // Safer fix: resume() only (no pause) every 12s — avoids triggering onend.
     _ttsHeartbeat = setInterval(() => {
       if (!_ttsPlaying) { clearInterval(_ttsHeartbeat); return; }
-      if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.pause();
-        window.speechSynthesis.resume();
-      }
-    }, 10000);
+      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+    }, 12000);
 
-    // Hard timeout fallback: if onend never fires, estimate from text length
-    const estimatedMs = Math.max(4000, text.length * 70);
+    // Hard timeout fallback: generous estimate so we never cut off mid-sentence.
+    // Chrome speaks ~12-14 chars/sec at rate 1.05 → ~80ms/char + 6s buffer.
+    const estimatedMs = Math.max(6000, text.length * 120 + 6000);
     _ttsTimeout = setTimeout(() => {
       if (_currentUtterance) {
         log("warn", "TTS", "onend timeout fallback");
