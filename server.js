@@ -474,9 +474,14 @@ wss.on("connection", (ws) => {
     const history = conversationHistory.get(sessionId) || [];
     if (history.length < 2) return;
 
-    // Save a placeholder synchronously FIRST so an immediate reconnect sees this session
+    // Save a placeholder synchronously FIRST so an immediate reconnect sees this session.
+    // Build a rough summary from the last user message so the greeting isn't generic.
+    const lastUserMsg = [...history].reverse().find(m => m.role === "user");
+    const placeholderSummary = lastUserMsg
+      ? `We discussed: ${lastUserMsg.content.slice(0, 120).split("\n")[0]}`
+      : "We had a conversation.";
     const endedAt = new Date().toISOString();
-    saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt, summary: "Recent conversation.", topics: [] });
+    saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt, summary: placeholderSummary, topics: [] });
 
     try {
       const transcript = history
