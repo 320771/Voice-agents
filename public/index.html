@@ -546,22 +546,24 @@
       currentAssistantEl = null;
       setSendEnabled(true);
 
-      if (lastSource === "voice" && active) {
-        // voice: speak the reply, then restart mic
+      if (lastSource === "voice") {
+        // voice: always speak the reply (don't gate on active — user may have
+        // stopped and restarted between the request and the response)
         orb.className = "speaking";
         setVoiceStatus("Agent speaking…");
         speak(msg.fullText, () => {
           orb.className = "";
           if (active) {
-            log("speech", "MIC", "Agent done speaking — restarting mic");
-            listen();
+            listen(); // restart mic only if session is still on
+          } else {
+            setVoiceStatus("Click Start to begin talking");
           }
         });
       } else {
-        // chat: no speaking, just reset orb state
+        // chat: no speaking, just reset state
         orb.className = active ? "listening" : "";
         setVoiceStatus(active ? "Listening… speak now" : "Click Start to begin talking");
-        if (active) listen(); // restart mic if voice session is still on
+        if (active) listen();
       }
     }
 
@@ -674,6 +676,7 @@
 
   function beginSession() {
     active = true;
+    lastSource = "voice"; // ensure agent speaks on first response
     startBtn.disabled = true;
     stopBtn.disabled = false;
     if (pendingGreeting) {
