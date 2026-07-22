@@ -657,10 +657,12 @@
   let _ttsTimeout = null;
   let _ttsOnEnd = null;
   let _ttsPlaying = false;
+  let _ttsHeartbeat = null; // workaround for Chrome 15s silent-stop bug
 
   function speak(text, onEnd) {
     window.speechSynthesis.cancel();
     clearTimeout(_ttsTimeout);
+    clearInterval(_ttsHeartbeat);
     _ttsOnEnd = onEnd;
     _ttsPlaying = true;
 
@@ -669,6 +671,7 @@
 
     const finish = () => {
       clearTimeout(_ttsTimeout);
+      clearInterval(_ttsHeartbeat);
       _ttsPlaying = false;
       _currentUtterance = null;
       const cb = _ttsOnEnd;
@@ -685,8 +688,18 @@
 
     window.speechSynthesis.speak(_currentUtterance);
 
-    // Fallback: Chrome sometimes never fires onend — estimate duration
-    const estimatedMs = Math.max(3000, text.length * 65);
+    // Chrome 15-second bug: speechSynthesis silently stops after ~14s.
+    // Heartbeat calls pause()+resume() every 10s to keep it alive.
+    _ttsHeartbeat = setInterval(() => {
+      if (!_ttsPlaying) { clearInterval(_ttsHeartbeat); return; }
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      }
+    }, 10000);
+
+    // Hard timeout fallback: if onend never fires, estimate from text length
+    const estimatedMs = Math.max(4000, text.length * 70);
     _ttsTimeout = setTimeout(() => {
       if (_currentUtterance) {
         log("warn", "TTS", "onend timeout fallback");
@@ -697,6 +710,7 @@
 
   function stopTTS() {
     clearTimeout(_ttsTimeout);
+    clearInterval(_ttsHeartbeat);
     _ttsPlaying = false;
     _ttsOnEnd = null;
     _currentUtterance = null;
