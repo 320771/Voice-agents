@@ -618,13 +618,39 @@
   });
 
   // ── TTS ────────────────────────────────────────────────────────────────────────
+  // Keep utterance in module scope — Chrome GCs local utterances before onend fires
+  let _currentUtterance = null;
+  let _ttsTimeout = null;
+
   function speak(text, onEnd) {
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    u.onend = onEnd || null;
-    u.onerror = (e) => { log("error", "TTS", "Speech synthesis error: " + e.error); if (onEnd) onEnd(); };
-    window.speechSynthesis.speak(u);
+    clearTimeout(_ttsTimeout);
+
+    _currentUtterance = new SpeechSynthesisUtterance(text);
+    _currentUtterance.rate = 1.05;
+
+    const finish = () => {
+      clearTimeout(_ttsTimeout);
+      _currentUtterance = null;
+      if (onEnd) onEnd();
+    };
+
+    _currentUtterance.onend   = finish;
+    _currentUtterance.onerror = (e) => {
+      log("error", "TTS", "Speech synthesis error: " + e.error);
+      finish();
+    };
+
+    window.speechSynthesis.speak(_currentUtterance);
+
+    // Fallback: if onend never fires (Chrome bug), estimate duration and continue
+    const estimatedMs = Math.max(2500, text.length * 65);
+    _ttsTimeout = setTimeout(() => {
+      if (_currentUtterance) {
+        log("warn", "TTS", "onend didn't fire — using timeout fallback");
+        finish();
+      }
+    }, estimatedMs);
   }
 
   // ── Voice ──────────────────────────────────────────────────────────────────────
