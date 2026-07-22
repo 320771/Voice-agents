@@ -141,6 +141,117 @@ async function get_sports(query = "") {
   } catch { return "Sports data unavailable."; }
 }
 
+async function translate_text(text, targetLang) {
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|${encodeURIComponent(targetLang)}`;
+    const data = await fetch(url).then(r => r.json());
+    const result = data.responseData?.translatedText;
+    if (!result || result === text) return `Could not translate to ${targetLang}.`;
+    return `Translation (${targetLang}): ${result}`;
+  } catch { return "Translation unavailable."; }
+}
+
+async function get_definition(word) {
+  try {
+    const data = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`).then(r => r.json());
+    if (!Array.isArray(data)) return `No definition found for: ${word}`;
+    const entry = data[0];
+    const meaning = entry.meanings?.[0];
+    const def = meaning?.definitions?.[0]?.definition || "No definition found.";
+    const phonetic = entry.phonetic ? ` (${entry.phonetic})` : "";
+    return `${word}${phonetic}: [${meaning?.partOfSpeech}] ${def}`;
+  } catch { return "Dictionary unavailable."; }
+}
+
+async function get_joke(topic = "") {
+  try {
+    if (topic.toLowerCase().includes("chuck") || topic.toLowerCase().includes("norris")) {
+      const data = await fetch("https://api.chucknorris.io/jokes/random").then(r => r.json());
+      return data.value || "No joke found.";
+    }
+    const data = await fetch("https://official-joke-api.appspot.com/random_joke").then(r => r.json());
+    return `${data.setup} ... ${data.punchline}`;
+  } catch { return "Could not fetch a joke right now."; }
+}
+
+async function get_currency(from, to, amount = 1) {
+  try {
+    const data = await fetch(`https://api.frankfurter.app/latest?from=${from.toUpperCase()}&to=${to.toUpperCase()}`).then(r => r.json());
+    const rate = data.rates?.[to.toUpperCase()];
+    if (!rate) return `Could not find exchange rate for ${from} to ${to}.`;
+    const converted = (amount * rate).toFixed(2);
+    return `${amount} ${from.toUpperCase()} = ${converted} ${to.toUpperCase()} (rate: ${rate})`;
+  } catch { return "Currency data unavailable."; }
+}
+
+async function get_trivia(category = "") {
+  try {
+    const url = category
+      ? `https://opentdb.com/api.php?amount=1&type=multiple&category=${encodeURIComponent(category)}`
+      : "https://opentdb.com/api.php?amount=1&type=multiple";
+    const data = await fetch(url).then(r => r.json());
+    const q = data.results?.[0];
+    if (!q) return "No trivia question available.";
+    const question = q.question.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&");
+    const answer = q.correct_answer.replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+    return `Trivia [${q.category}]: ${question} — Answer: ${answer}`;
+  } catch { return "Trivia unavailable."; }
+}
+
+async function get_quote() {
+  try {
+    const data = await fetch("https://api.quotable.io/random").then(r => r.json());
+    return `"${data.content}" — ${data.author}`;
+  } catch { return "Could not fetch a quote."; }
+}
+
+async function get_recipe(dish) {
+  try {
+    const data = await fetch(`https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(dish)}`).then(r => r.json());
+    const meal = data.meals?.[0];
+    if (!meal) return `No recipe found for: ${dish}`;
+    const ingredients = Object.keys(meal)
+      .filter(k => k.startsWith("strIngredient") && meal[k]?.trim())
+      .slice(0, 8)
+      .map(k => meal[k].trim()).join(", ");
+    return `${meal.strMeal} (${meal.strArea} ${meal.strCategory}): Ingredients — ${ingredients}. ${meal.strInstructions?.slice(0, 200)}…`;
+  } catch { return "Recipe data unavailable."; }
+}
+
+async function get_holidays(country, year = new Date().getFullYear()) {
+  try {
+    const data = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${country.toUpperCase()}`).then(r => r.json());
+    if (!Array.isArray(data) || !data.length) return `No holidays found for ${country} in ${year}.`;
+    const upcoming = data.filter(h => new Date(h.date) >= new Date()).slice(0, 5);
+    const list = (upcoming.length ? upcoming : data.slice(0, 5))
+      .map(h => `${h.date}: ${h.name}`).join(". ");
+    return `Public holidays in ${country.toUpperCase()} (${year}): ${list}`;
+  } catch { return "Holiday data unavailable."; }
+}
+
+async function get_time(timezone) {
+  try {
+    const data = await fetch(`https://worldtimeapi.org/api/timezone/${encodeURIComponent(timezone)}`).then(r => r.json());
+    if (data.error) return `Unknown timezone: ${timezone}`;
+    const dt = new Date(data.datetime);
+    return `Current time in ${timezone}: ${dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })} on ${dt.toDateString()}`;
+  } catch { return "Time data unavailable."; }
+}
+
+async function get_country(name) {
+  try {
+    const data = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(name)}?fullText=false&fields=name,capital,population,currencies,languages,region`).then(r => r.json());
+    const c = Array.isArray(data) ? data[0] : null;
+    if (!c) return `No country found: ${name}`;
+    const capital = c.capital?.[0] || "N/A";
+    const pop = c.population?.toLocaleString() || "N/A";
+    const currency = Object.values(c.currencies || {})[0];
+    const currStr = currency ? `${currency.name} (${currency.symbol})` : "N/A";
+    const langs = Object.values(c.languages || {}).slice(0, 3).join(", ");
+    return `${c.name.common} (${c.region}): Capital — ${capital}, Population — ${pop}, Currency — ${currStr}, Languages — ${langs}`;
+  } catch { return "Country data unavailable."; }
+}
+
 // ── Vector-based intent detection + tool routing ─────────────────────────────
 
 async function fetchToolData(text, sendLog) {
@@ -169,6 +280,60 @@ async function fetchToolData(text, sendLog) {
     if (!param) return null;
     sendLog("tool_call", "get_wikipedia", { topic: param });
     return { tool: "wiki", data: await get_wikipedia(param) };
+  }
+  if (intent === "translate") {
+    const parts = param.split("::");
+    const targetLang = parts[0]?.trim() || "hi";
+    const textToTranslate = parts[1]?.trim() || text;
+    sendLog("tool_call", "translate_text", { targetLang, text: textToTranslate });
+    return { tool: "translate", data: await translate_text(textToTranslate, targetLang) };
+  }
+  if (intent === "dictionary") {
+    if (!param) return { tool: "dictionary", data: "Please specify a word to look up." };
+    sendLog("tool_call", "get_definition", { word: param });
+    return { tool: "dictionary", data: await get_definition(param) };
+  }
+  if (intent === "joke") {
+    sendLog("tool_call", "get_joke", { topic: param });
+    return { tool: "joke", data: await get_joke(param) };
+  }
+  if (intent === "currency") {
+    const parts = param.split("::");
+    const from = parts[0]?.trim() || "USD";
+    const to = parts[1]?.trim() || "INR";
+    const amount = parseFloat(parts[2]) || 1;
+    sendLog("tool_call", "get_currency", { from, to, amount });
+    return { tool: "currency", data: await get_currency(from, to, amount) };
+  }
+  if (intent === "trivia") {
+    sendLog("tool_call", "get_trivia", { category: param });
+    return { tool: "trivia", data: await get_trivia(param) };
+  }
+  if (intent === "quote") {
+    sendLog("tool_call", "get_quote", {});
+    return { tool: "quote", data: await get_quote() };
+  }
+  if (intent === "recipe") {
+    if (!param) return { tool: "recipe", data: "Please specify a dish or ingredient." };
+    sendLog("tool_call", "get_recipe", { dish: param });
+    return { tool: "recipe", data: await get_recipe(param) };
+  }
+  if (intent === "holiday") {
+    const parts = param.split("::");
+    const country = parts[0]?.trim() || "IN";
+    const year = parts[1]?.trim() || new Date().getFullYear();
+    sendLog("tool_call", "get_holidays", { country, year });
+    return { tool: "holiday", data: await get_holidays(country, year) };
+  }
+  if (intent === "time") {
+    const tz = param || "Asia/Kolkata";
+    sendLog("tool_call", "get_time", { timezone: tz });
+    return { tool: "time", data: await get_time(tz) };
+  }
+  if (intent === "country") {
+    if (!param) return { tool: "country", data: "Please specify a country name." };
+    sendLog("tool_call", "get_country", { name: param });
+    return { tool: "country", data: await get_country(param) };
   }
   if (intent === "whatsapp") {
     // param format: "NUMBER::MESSAGE" — split on first ::

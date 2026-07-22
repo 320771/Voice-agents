@@ -158,6 +158,105 @@ const TRAINING_DATA = [
   ["gravity kya hoti hai",                           "wiki", "gravity"],
   ["tell me about the Great Wall of China",          "wiki", "Great Wall of China"],
 
+  // TRANSLATE
+  ["translate hello to French",                          "translate", "fr::hello"],
+  ["translate this to Hindi",                            "translate", "hi::"],
+  ["how do you say thank you in Spanish",                "translate", "es::thank you"],
+  ["translate good morning to Japanese",                 "translate", "ja::good morning"],
+  ["anuvad karo Hindi mein",                             "translate", "hi::"],
+  ["translate to German: where is the station",          "translate", "de::where is the station"],
+  ["translate namaste to English",                       "translate", "en::namaste"],
+  ["French mein kaise bolte hain I love you",            "translate", "fr::I love you"],
+
+  // DICTIONARY
+  ["what does ephemeral mean",                           "dictionary", "ephemeral"],
+  ["define serendipity",                                 "dictionary", "serendipity"],
+  ["meaning of ubiquitous",                              "dictionary", "ubiquitous"],
+  ["definition of eloquent",                             "dictionary", "eloquent"],
+  ["word meaning of resilience",                         "dictionary", "resilience"],
+  ["what is the meaning of melancholy",                  "dictionary", "melancholy"],
+  ["matlab kya hai gratitude ka",                        "dictionary", "gratitude"],
+  ["dictionary mein dekho perseverance",                 "dictionary", "perseverance"],
+
+  // JOKE
+  ["tell me a joke",                                     "joke", ""],
+  ["make me laugh",                                      "joke", ""],
+  ["say something funny",                                "joke", ""],
+  ["joke sunao",                                         "joke", ""],
+  ["mujhe hasao",                                        "joke", ""],
+  ["tell me a Chuck Norris joke",                        "joke", "chuck norris"],
+  ["ek majedar joke sunao",                              "joke", ""],
+  ["funny joke batao",                                   "joke", ""],
+
+  // CURRENCY
+  ["convert 100 USD to INR",                             "currency", "USD::INR::100"],
+  ["1 dollar kitne rupaye ka hai",                       "currency", "USD::INR::1"],
+  ["exchange rate USD to EUR",                           "currency", "USD::EUR::1"],
+  ["how much is 500 pounds in rupees",                   "currency", "GBP::INR::500"],
+  ["dollar to rupee rate today",                         "currency", "USD::INR::1"],
+  ["50 euros in Indian rupees",                          "currency", "EUR::INR::50"],
+  ["currency convert GBP to USD",                       "currency", "GBP::USD::1"],
+  ["aaj ka dollar rate kya hai",                         "currency", "USD::INR::1"],
+
+  // TRIVIA
+  ["give me a trivia question",                          "trivia", ""],
+  ["trivia question batao",                              "trivia", ""],
+  ["ask me something interesting",                       "trivia", ""],
+  ["random trivia",                                      "trivia", ""],
+  ["quiz question",                                      "trivia", ""],
+  ["science trivia",                                     "trivia", "science"],
+  ["history trivia question",                            "trivia", "history"],
+  ["general knowledge question",                         "trivia", ""],
+
+  // QUOTE
+  ["give me an inspirational quote",                     "quote", ""],
+  ["motivational quote sunao",                           "quote", ""],
+  ["quote of the day",                                   "quote", ""],
+  ["inspire me",                                         "quote", ""],
+  ["koi acchi baat batao",                               "quote", ""],
+  ["something motivational please",                      "quote", ""],
+  ["famous quote batao",                                 "quote", ""],
+
+  // RECIPE
+  ["how to make biryani",                                "recipe", "biryani"],
+  ["recipe for pasta",                                   "recipe", "pasta"],
+  ["dal tadka kaise banate hain",                        "recipe", "dal tadka"],
+  ["butter chicken recipe batao",                        "recipe", "butter chicken"],
+  ["how do I cook sushi",                                "recipe", "sushi"],
+  ["chocolate cake recipe",                              "recipe", "chocolate cake"],
+  ["paneer tikka kaise banaye",                          "recipe", "paneer tikka"],
+  ["ingredients for pizza",                              "recipe", "pizza"],
+
+  // HOLIDAY
+  ["public holidays in India",                           "holiday", "IN"],
+  ["India mein kaunse holidays hain",                    "holiday", "IN"],
+  ["upcoming holidays in UK",                            "holiday", "GB"],
+  ["national holidays in USA",                           "holiday", "US"],
+  ["is there a holiday this month in India",             "holiday", "IN"],
+  ["kab hai next public holiday",                        "holiday", "IN"],
+  ["holidays in Germany this year",                      "holiday", "DE"],
+
+  // TIME
+  ["what time is it in Tokyo right now",                 "time", "Asia/Tokyo"],
+  ["what time is it in New York",                        "time", "America/New_York"],
+  ["New York mein abhi kya time hai",                    "time", "America/New_York"],
+  ["current time in London",                             "time", "Europe/London"],
+  ["Tokyo mein abhi kitne baje hain",                    "time", "Asia/Tokyo"],
+  ["what time is it in Dubai",                           "time", "Asia/Dubai"],
+  ["time zone in Sydney",                                "time", "Australia/Sydney"],
+  ["Paris mein time kya hai",                            "time", "Europe/Paris"],
+  ["current time in IST",                                "time", "Asia/Kolkata"],
+
+  // COUNTRY
+  ["tell me about Japan",                                "country", "Japan"],
+  ["what is the capital of Brazil",                      "country", "Brazil"],
+  ["France ke baare mein batao",                         "country", "France"],
+  ["population of Germany",                              "country", "Germany"],
+  ["currency of Australia",                              "country", "Australia"],
+  ["which language do they speak in Portugal",           "country", "Portugal"],
+  ["Canada facts batao",                                 "country", "Canada"],
+  ["Italy ki rajdhani kya hai",                          "country", "Italy"],
+
   // WHATSAPP
   ["send WhatsApp to 919876543210 saying hello",         "whatsapp", "919876543210::hello"],
   ["WhatsApp message to John saying I'll be late",       "whatsapp", ""],
@@ -233,6 +332,82 @@ const PARAM_EXTRACTORS = {
     const named = text.match(/\b(cricket|football|soccer|basketball|tennis|IPL|NBA|NFL|Premier League|Champions League|World Cup|F1|badminton|hockey|rugby|Olympics)\b/i);
     if (named) return named[1];
     return "";
+  },
+  translate: (text) => {
+    const langMap = { hindi:"hi", french:"fr", spanish:"es", german:"de", japanese:"ja",
+      arabic:"ar", chinese:"zh", russian:"ru", portuguese:"pt", italian:"it",
+      korean:"ko", english:"en", marathi:"mr", tamil:"ta", telugu:"te", bengali:"bn" };
+    const langMatch = text.match(/to\s+([a-z]+)/i)?.[1]?.toLowerCase() ||
+                      text.match(/in\s+([a-z]+)\s+(?:mein|bolte)/i)?.[1]?.toLowerCase();
+    const langCode = langMatch ? (langMap[langMatch] || langMatch.slice(0,2)) : "hi";
+    const textMatch = text.match(/translate\s+(.+?)\s+to\s+[a-z]+/i)?.[1] ||
+                      text.match(/say\s+(.+?)\s+in\s+[a-z]+/i)?.[1] ||
+                      text.match(/:\s*(.+)$/)?.[1] || "";
+    return `${langCode}::${textMatch.trim()}`;
+  },
+  dictionary: (text) => {
+    return text.replace(/what does|define|definition of|meaning of|word meaning of|what is the meaning of|matlab kya hai|ka|dictionary mein dekho/gi, "")
+               .replace(/\?/g, "").trim().split(/\s+/).slice(0,3).join(" ") || "";
+  },
+  joke: (text) => {
+    if (/chuck|norris/i.test(text)) return "chuck norris";
+    return "";
+  },
+  currency: (text) => {
+    const amount = text.match(/(\d+(?:\.\d+)?)/)?.[1] || "1";
+    const currencies = { dollar:"USD", dollars:"USD", usd:"USD", rupee:"INR", rupees:"INR",
+      inr:"INR", euro:"EUR", euros:"EUR", pound:"GBP", pounds:"GBP", yen:"JPY",
+      yuan:"CNY", dirham:"AED", riyal:"SAR" };
+    const words = text.toLowerCase().split(/\s+/);
+    let from = "USD", to = "INR";
+    const found = words.map(w => currencies[w]).filter(Boolean);
+    if (found[0]) from = found[0];
+    if (found[1]) to = found[1];
+    // "USD to INR" pattern
+    const explicit = text.match(/([A-Z]{3})\s+to\s+([A-Z]{3})/i);
+    if (explicit) { from = explicit[1].toUpperCase(); to = explicit[2].toUpperCase(); }
+    return `${from}::${to}::${amount}`;
+  },
+  trivia: (text) => {
+    if (/science/i.test(text)) return "science";
+    if (/history/i.test(text)) return "history";
+    if (/sport/i.test(text)) return "sports";
+    if (/geography/i.test(text)) return "geography";
+    return "";
+  },
+  quote: () => "",
+  recipe: (text) => {
+    return text.replace(/how to make|recipe for|kaise banate hain|kaise banaye|recipe batao|ingredients for|how do i cook/gi, "")
+               .replace(/\?/g, "").trim() || "";
+  },
+  holiday: (text) => {
+    const countryMap = { india:"IN", uk:"GB", "united kingdom":"GB", usa:"US",
+      "united states":"US", germany:"DE", france:"FR", australia:"AU",
+      japan:"JP", canada:"CA", italy:"IT" };
+    const lower = text.toLowerCase();
+    for (const [name, code] of Object.entries(countryMap)) {
+      if (lower.includes(name)) return code;
+    }
+    return "IN";
+  },
+  time: (text) => {
+    const tzMap = {
+      "new york":"America/New_York", "london":"Europe/London", "tokyo":"Asia/Tokyo",
+      "dubai":"Asia/Dubai", "sydney":"Australia/Sydney", "paris":"Europe/Paris",
+      "berlin":"Europe/Berlin", "singapore":"Asia/Singapore", "mumbai":"Asia/Kolkata",
+      "delhi":"Asia/Kolkata", "kolkata":"Asia/Kolkata", "ist":"Asia/Kolkata",
+      "los angeles":"America/Los_Angeles", "chicago":"America/Chicago",
+      "toronto":"America/Toronto", "beijing":"Asia/Shanghai", "moscow":"Europe/Moscow"
+    };
+    const lower = text.toLowerCase();
+    for (const [city, tz] of Object.entries(tzMap)) {
+      if (lower.includes(city)) return tz;
+    }
+    return "Asia/Kolkata";
+  },
+  country: (text) => {
+    return text.replace(/tell me about|what is the capital of|ke baare mein batao|population of|currency of|which language do they speak in|facts batao|ki rajdhani kya hai/gi, "")
+               .replace(/\?/g, "").trim() || "";
   },
   whatsapp: (text) => {
     // Extract number and message: "send WhatsApp to 91XXXXXXXXXX saying <msg>"
