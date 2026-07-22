@@ -80,6 +80,22 @@ export const OFFERS = [
     cooldownDays: 5,
   },
   {
+    id: "amazon_price_drop_alert",
+    name: "Amazon Price Drop Alert",
+    pitch: "Since you've been checking products on Amazon, did you know we can watch any item for you and alert you the moment its price drops? Just say 'track this product' anytime.",
+    rebuttal: "I get it — but prices on Amazon can swing by 20 to 30 percent in a week. Our alert fires the second it drops so you never miss the best deal. Completely free to set up.",
+    triggers: ["amazon", "product", "price", "buy", "purchase", "shop", "shopping", "laptop", "phone", "mobile", "earphone", "headphone", "tv", "watch", "camera"],
+    cooldownDays: 5,
+  },
+  {
+    id: "flipkart_wishlist_tracker",
+    name: "Flipkart Wishlist Tracker",
+    pitch: "You've been browsing products — I can keep an eye on your Flipkart wishlist and ping you when something goes on sale or hits a Big Billion Days offer.",
+    rebuttal: "Totally fine — but Flipkart's biggest sales come without much notice. Our tracker catches those flash discounts and notifies you before stock runs out.",
+    triggers: ["flipkart", "product", "deal", "discount", "offer", "sale", "wishlist", "cart"],
+    cooldownDays: 5,
+  },
+  {
     id: "whatsapp_assistant",
     name: "WhatsApp Assistant",
     pitch: "Did you know you can also reach me directly on WhatsApp? Just add our number and get all this help right in your chat.",

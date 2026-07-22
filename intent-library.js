@@ -649,6 +649,55 @@ const TRAINING_DATA = [
   ["send WA message",                                    "whatsapp", ""],
   ["text on WhatsApp",                                   "whatsapp", ""],
 
+  // PRODUCT SEARCH
+  ["search for iPhone on Amazon",                        "product", "amazon::iPhone"],
+  ["find Samsung TV on Flipkart",                        "product", "flipkart::Samsung TV"],
+  ["show me laptops on Amazon",                          "product", "amazon::laptop"],
+  ["Amazon pe headphones dhundo",                        "product", "amazon::headphones"],
+  ["Flipkart pe shoes dikao",                            "product", "flipkart::shoes"],
+  ["what is the price of iPhone 15",                     "product", "amazon::iPhone 15"],
+  ["find me a good mixer grinder",                       "product", "both::mixer grinder"],
+  ["buy earphones online",                               "product", "both::earphones"],
+  ["search earbuds Amazon Flipkart",                     "product", "both::earbuds"],
+  ["mobile phone under 15000",                           "product", "both::mobile phone under 15000"],
+  ["best smartwatch price",                              "product", "both::smartwatch"],
+  ["Amazon par watch search karo",                       "product", "amazon::watch"],
+  ["Flipkart par cooler dhundo",                         "product", "flipkart::cooler"],
+  ["kaunsa laptop accha rahega 50000 mein",              "product", "both::laptop 50000"],
+  ["refrigerator khareedna hai",                         "product", "both::refrigerator"],
+  ["washing machine price on Flipkart",                  "product", "flipkart::washing machine"],
+  ["show me air purifiers",                              "product", "both::air purifier"],
+  ["find running shoes online",                          "product", "both::running shoes"],
+  ["kindle price on Amazon India",                       "product", "amazon::kindle"],
+  ["best camera under 30000",                            "product", "both::camera under 30000"],
+  ["search product Amazon",                              "product", "amazon::"],
+  ["find on Flipkart",                                   "product", "flipkart::"],
+  ["product price check",                                "product", "both::"],
+  ["kya price hai Amazon pe",                            "product", "amazon::"],
+  ["online khareedna hai",                               "product", "both::"],
+
+  // DEALS / DISCOUNTS
+  ["any deals on Amazon today",                          "deals", "amazon::"],
+  ["show me Flipkart offers",                            "deals", "flipkart::"],
+  ["best deals on electronics",                          "deals", "both::electronics"],
+  ["Amazon sale chal rahi hai kya",                      "deals", "amazon::"],
+  ["Flipkart pe discount kya chal raha hai",             "deals", "flipkart::"],
+  ["any discounts on mobiles",                           "deals", "both::mobiles"],
+  ["today's best online offers",                         "deals", "both::"],
+  ["Amazon pe kya offer hai",                            "deals", "amazon::"],
+  ["Flipkart sale deals",                                "deals", "flipkart::"],
+  ["festive sale offers",                                "deals", "both::"],
+  ["laptop deals Amazon",                                "deals", "amazon::laptop"],
+  ["mobile discount Flipkart",                           "deals", "flipkart::mobile"],
+  ["electronics pe koi offer hai kya",                   "deals", "both::electronics"],
+  ["what's on sale right now",                           "deals", "both::"],
+  ["best offers online shopping",                        "deals", "both::"],
+  ["Amazon bestsellers",                                 "deals", "amazon::"],
+  ["Flipkart top picks",                                 "deals", "flipkart::"],
+  ["trending products to buy",                           "deals", "both::"],
+  ["koi accha deal batao",                               "deals", "both::"],
+  ["sasta phone kahan milega",                           "deals", "both::phone"],
+
   // NONE
   ["hello",                                          "none", ""],
   ["hi there",                                       "none", ""],
@@ -830,6 +879,29 @@ const PARAM_EXTRACTORS = {
     }
     return text.replace(/tell me about|what is the capital of|ke baare mein batao|population of|currency of|which language do they speak in|facts batao|ki rajdhani kya hai|give me information about|what can you tell me about|describe|i want to know about|i'm curious about|brief me on|what languages are spoken in|fun facts about|kuch batao|ki jankari do|kaisa desh hai|ke baare mein kuch facts do|ki raajdhani kya hai|ki jansankhya kitni hai|के बारे में बताओ|की जानकारी दो|कैसा देश है|के बारे में कुछ बताओ|की राजधानी क्या है|की जनसंख्या कितनी है|के बारे में जानकारी दो|के बारे में कुछ रोचक बताओ/gi, "")
                .replace(/\?/g, "").trim() || "";
+  },
+  product: (text) => {
+    // Detect platform
+    const lower = text.toLowerCase();
+    const platform = lower.includes("amazon") ? "amazon"
+      : lower.includes("flipkart") ? "flipkart"
+      : "both";
+    // Strip platform name + filler phrases to get the query
+    const query = text
+      .replace(/amazon|flipkart|online|search|find|show me|look for|dhundo|dikao|khareedna hai|price of|price check|best|accha|kya price hai|pe|par|mein|ko|karo/gi, "")
+      .replace(/\?/g, "").trim();
+    return query ? `${platform}::${query}` : `${platform}::`;
+  },
+  deals: (text) => {
+    const lower = text.toLowerCase();
+    const platform = lower.includes("amazon") ? "amazon"
+      : lower.includes("flipkart") ? "flipkart"
+      : "both";
+    // Extract category if present
+    const category = text
+      .replace(/amazon|flipkart|deals?|offers?|discounts?|sale|chal rahi hai|kya chal raha hai|pe kya|today's|best|show me|any|online|pe koi|hai kya|batao|kahan milega|sasta/gi, "")
+      .replace(/\?/g, "").trim();
+    return category ? `${platform}::${category}` : `${platform}::`;
   },
   whatsapp: (text) => {
     // Extract number and message: "send WhatsApp to 91XXXXXXXXXX saying <msg>"

@@ -8,6 +8,7 @@ import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
+import { searchProducts, getDeals } from "./products.js";
 import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers,
          buildCrossSellContext, queueCrossSellOpportunities, getNextCrossSellOffer, markCrossSellPresented } from "./memory.js";
 import { OFFERS, detectOpportunities, getOffer } from "./crosssell-library.js";
@@ -340,6 +341,15 @@ async function fetchToolData(text, sendLog) {
     if (!param) return { tool: "country", data: "Please specify a country name." };
     sendLog("tool_call", "get_country", { name: param });
     return { tool: "country", data: await get_country(param) };
+  }
+  if (intent === "product") {
+    if (!param || param.endsWith("::")) return { tool: "product", data: "Please tell me what product you are looking for." };
+    sendLog("tool_call", "search_products", { param });
+    return { tool: "product", data: await searchProducts(param) };
+  }
+  if (intent === "deals") {
+    sendLog("tool_call", "get_deals", { param });
+    return { tool: "deals", data: await getDeals(param) };
   }
   if (intent === "whatsapp") {
     // param format: "NUMBER::MESSAGE" — split on first ::
