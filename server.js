@@ -9,7 +9,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
-const client = new Anthropic();
+const client = new Anthropic({
+  baseURL: process.env.ANTHROPIC_BASE_URL || "https://anthropic.prod.ai-gateway.quantumblack.com/ecf25ea2-1310-4d7b-811e-03f56eb9e8f3",
+});
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -38,9 +40,8 @@ wss.on("connection", (ws) => {
 
       try {
         const stream = await client.messages.stream({
-          model: "claude-opus-4-8",
+          model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
-          thinking: { type: "adaptive" },
           system:
             "You are a helpful, friendly voice assistant. Keep responses concise and conversational — ideally 1-3 sentences unless the user asks for detail. Avoid markdown, bullet points, or formatting since your responses will be spoken aloud.",
           messages: history,
