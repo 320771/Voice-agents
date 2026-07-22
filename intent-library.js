@@ -717,14 +717,28 @@ const PARAM_EXTRACTORS = {
   translate: (text) => {
     const langMap = { hindi:"hi", french:"fr", spanish:"es", german:"de", japanese:"ja",
       arabic:"ar", chinese:"zh", russian:"ru", portuguese:"pt", italian:"it",
-      korean:"ko", english:"en", marathi:"mr", tamil:"ta", telugu:"te", bengali:"bn" };
-    const langMatch = text.match(/to\s+([a-z]+)/i)?.[1]?.toLowerCase() ||
-                      text.match(/in\s+([a-z]+)\s+(?:mein|bolte)/i)?.[1]?.toLowerCase();
-    const langCode = langMatch ? (langMap[langMatch] || langMatch.slice(0,2)) : "hi";
-    const textMatch = text.match(/translate\s+(.+?)\s+to\s+[a-z]+/i)?.[1] ||
-                      text.match(/say\s+(.+?)\s+in\s+[a-z]+/i)?.[1] ||
-                      text.match(/:\s*(.+)$/)?.[1] || "";
-    return `${langCode}::${textMatch.trim()}`;
+      korean:"ko", english:"en", marathi:"mr", tamil:"ta", telugu:"te", bengali:"bn",
+      "फ्रेंच":"fr", "हिंदी":"hi", "जापानी":"ja", "स्पेनिश":"es", "जर्मन":"de",
+      "अरबी":"ar", "चीनी":"zh", "कोरियाई":"ko", "रूसी":"ru" };
+    // Detect language: "to LANG", "in LANG", "LANG mein/में"
+    const toMatch  = text.match(/\bto\s+([a-z]+)/i)?.[1]?.toLowerCase();
+    const inMatch  = text.match(/\bin\s+([a-z]+)\b/i)?.[1]?.toLowerCase();
+    // "Japanese mein" or "फ्रेंच में" — word(s) before mein/में
+    const meinMatch = text.match(/(\S+)\s+(?:mein|में)/i)?.[1]?.toLowerCase();
+    const rawLang  = toMatch || inMatch || meinMatch || "";
+    const langCode = langMap[rawLang] || (rawLang.length >= 2 ? rawLang.slice(0,2) : "hi");
+
+    // Extract word to translate
+    // "translate X to LANG" | "say X in LANG" | ": X" | "LANG mein X kaise bolte"
+    const wordToTranslate =
+      text.match(/translate\s+(.+?)\s+to\s+[a-z]+/i)?.[1] ||
+      text.match(/say\s+(.+?)\s+in\s+[a-z]+/i)?.[1] ||
+      text.match(/:\s*(.+)$/)?.[1] ||
+      // "LANG mein WORD kaise/ka/कैसे/कहते"  e.g. "Japanese mein namaste kaise"
+      text.match(/(?:mein|में)\s+(\S+)\s+(?:kaise|ka|ko|ki|bolte|कैसे|कहते|का|की|को)/i)?.[1] ||
+      // "LANG में WORD" at end of string
+      text.match(/(?:mein|में)\s+(\S+)\s*$/i)?.[1] || "";
+    return `${langCode}::${wordToTranslate.trim()}`;
   },
   dictionary: (text) => {
     return text.replace(/what does|define|definition of|meaning of|word meaning of|what is the meaning of|matlab kya hai|ka|dictionary mein dekho/gi, "")
@@ -758,8 +772,20 @@ const PARAM_EXTRACTORS = {
   },
   quote: () => "",
   recipe: (text) => {
-    return text.replace(/how to make|recipe for|kaise banate hain|kaise banaye|recipe batao|ingredients for|how do i cook/gi, "")
-               .replace(/\?/g, "").trim() || "";
+    // Devanagari dish name map
+    const dishMap = {
+      "बिरयानी":"biryani", "दाल":"dal", "पाव\s+भाजी":"pav bhaji", "गुलाब\s+जामुन":"gulab jamun",
+      "समोसे":"samosa", "समोसा":"samosa", "पनीर\s+टिक्का":"paneer tikka",
+      "राजमा":"rajma", "चॉकलेट\s+केक":"chocolate cake"
+    };
+    for (const [dev, eng] of Object.entries(dishMap)) {
+      if (new RegExp(dev).test(text)) return eng;
+    }
+    // For other Devanagari: extract the dish name before "बनाने/की रेसिपी"
+    const devMatch = text.match(/^(\S+)\s+(?:बनाने|की\s+रेसिपी|कैसे\s+बनाते|कैसे\s+बनाएं)/);
+    if (devMatch) return devMatch[1];
+    return text.replace(/how to make|recipe for|kaise banate hain|kaise banaye|recipe batao|ingredients for|how do i cook|how do i make|teach me how to cook|give me a recipe for|what's a good recipe for|i want to make|banane ki recipe batao|ki recipe kya hai|kaise banta hai|banane ka tarika|ghar mein kaise banaye|banane ka sahi tarika/gi, "")
+               .replace(/\?/g, "").replace(/\b(tonight|please|aaj|abhi)\b/gi, "").trim() || "";
   },
   holiday: (text) => {
     const countryMap = { india:"IN", uk:"GB", "united kingdom":"GB", usa:"US",
@@ -778,16 +804,31 @@ const PARAM_EXTRACTORS = {
       "berlin":"Europe/Berlin", "singapore":"Asia/Singapore", "mumbai":"Asia/Kolkata",
       "delhi":"Asia/Kolkata", "kolkata":"Asia/Kolkata", "ist":"Asia/Kolkata",
       "los angeles":"America/Los_Angeles", "chicago":"America/Chicago",
-      "toronto":"America/Toronto", "beijing":"Asia/Shanghai", "moscow":"Europe/Moscow"
+      "toronto":"America/Toronto", "beijing":"Asia/Shanghai", "moscow":"Europe/Moscow",
+      // Devanagari city names
+      "न्यूयॉर्क":"America/New_York", "लंदन":"Europe/London", "टोक्यो":"Asia/Tokyo",
+      "दुबई":"Asia/Dubai", "सिडनी":"Australia/Sydney", "पेरिस":"Europe/Paris",
+      "बर्लिन":"Europe/Berlin", "सिंगापुर":"Asia/Singapore", "मुंबई":"Asia/Kolkata",
+      "दिल्ली":"Asia/Kolkata", "मॉस्को":"Europe/Moscow", "बीजिंग":"Asia/Shanghai"
     };
     const lower = text.toLowerCase();
     for (const [city, tz] of Object.entries(tzMap)) {
-      if (lower.includes(city)) return tz;
+      if (lower.includes(city.toLowerCase())) return tz;
     }
     return "Asia/Kolkata";
   },
   country: (text) => {
-    return text.replace(/tell me about|what is the capital of|ke baare mein batao|population of|currency of|which language do they speak in|facts batao|ki rajdhani kya hai/gi, "")
+    // Map Devanagari country names to English
+    const devanagariMap = {
+      "जापान":"Japan", "ब्राज़ील":"Brazil", "ब्राजील":"Brazil", "जर्मनी":"Germany",
+      "ऑस्ट्रेलिया":"Australia", "फ्रांस":"France", "चीन":"China", "कनाडा":"Canada",
+      "मेक्सिको":"Mexico", "नॉर्वे":"Norway", "भारत":"India", "रूस":"Russia",
+      "इटली":"Italy", "स्पेन":"Spain", "अमेरिका":"USA"
+    };
+    for (const [dev, eng] of Object.entries(devanagariMap)) {
+      if (text.includes(dev)) return eng;
+    }
+    return text.replace(/tell me about|what is the capital of|ke baare mein batao|population of|currency of|which language do they speak in|facts batao|ki rajdhani kya hai|give me information about|what can you tell me about|describe|i want to know about|i'm curious about|brief me on|what languages are spoken in|fun facts about|kuch batao|ki jankari do|kaisa desh hai|ke baare mein kuch facts do|ki raajdhani kya hai|ki jansankhya kitni hai|के बारे में बताओ|की जानकारी दो|कैसा देश है|के बारे में कुछ बताओ|की राजधानी क्या है|की जनसंख्या कितनी है|के बारे में जानकारी दो|के बारे में कुछ रोचक बताओ/gi, "")
                .replace(/\?/g, "").trim() || "";
   },
   whatsapp: (text) => {
@@ -800,7 +841,16 @@ const PARAM_EXTRACTORS = {
     return "";
   },
   wiki: (text) => {
-    const stopPhrases = /who is|who was|what is|what are|tell me about|explain|wikipedia|history of|biography of|definition of|meaning of|how does|how did|what does|where is|when was|why is|give me information about|i want to know about|describe|facts about|what happened in|background on|kaun hai|kya hai|ke baare mein batao|ke baare mein|itihas|kya hota hai|matlab kya hai|kaise kaam karta hai|kahan hai|kab hua|kyon hai|jaankari do|information do|explain karo|bata do|batao|kaun the/gi;
+    // Map Devanagari entity names to English
+    const devanagariMap = {
+      "बिटकॉइन":"Bitcoin", "एलन मस्क":"Elon Musk", "महात्मा गांधी":"Mahatma Gandhi",
+      "ताज महल":"Taj Mahal", "हिमालय":"Himalayas", "ब्लैक होल":"black holes",
+      "क्वांटम कंप्यूटिंग":"quantum computing"
+    };
+    for (const [dev, eng] of Object.entries(devanagariMap)) {
+      if (text.includes(dev)) return eng;
+    }
+    const stopPhrases = /who is|who was|what is|what are|tell me about|explain|wikipedia|history of|biography of|definition of|meaning of|how does|how did|what does|where is|when was|why is|give me information about|i want to know about|describe|facts about|what happened in|background on|kaun hai|kya hai|ke baare mein batao|ke baare mein|itihas|kya hota hai|matlab kya hai|kaise kaam karta hai|kahan hai|kab hua|kyon hai|jaankari do|information do|explain karo|bata do|batao|kaun the|के बारे में बताओ|क्या है|क्या होते हैं|कौन थे|के बारे में जानकारी दो/gi;
     return text.replace(stopPhrases, "").replace(/[?]/g, "").trim() || "";
   },
 };
