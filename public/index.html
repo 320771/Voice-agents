@@ -392,7 +392,7 @@
 
   // ── Error logger (row 1 — errors only) ──────────────────────────────────────
   function log(type, tag, msg) {
-    if (type !== "error" && type !== "warn") return; // only errors/warnings shown
+    if (!["error", "warn", "info"].includes(type)) return;
     const el = document.createElement("div");
     el.className = `log-entry ${type}`;
     const ts = new Date().toTimeString().slice(0, 8);
@@ -547,14 +547,13 @@
       setSendEnabled(true);
 
       if (lastSource === "voice") {
-        // voice: always speak the reply (don't gate on active — user may have
-        // stopped and restarted between the request and the response)
         orb.className = "speaking";
         setVoiceStatus("Agent speaking…");
         speak(msg.fullText, () => {
           orb.className = "";
           if (active) {
-            listen(); // restart mic only if session is still on
+            setVoiceStatus("Starting mic…");
+            setTimeout(() => { if (active) listen(); }, 600);
           } else {
             setVoiceStatus("Click Start to begin talking");
           }
@@ -635,7 +634,7 @@
       if (onEnd) onEnd();
     };
 
-    _currentUtterance.onend   = finish;
+    _currentUtterance.onend   = () => { log("warn", "TTS", "onend fired"); finish(); };
     _currentUtterance.onerror = (e) => {
       log("error", "TTS", "Speech synthesis error: " + e.error);
       finish();
@@ -670,7 +669,7 @@
 
     orb.className = "listening";
     setVoiceStatus("Listening… speak now");
-    log("speech", "MIC", "Mic opened");
+    log("warn", "MIC", "Mic opened — speak now");
 
     recognition.onresult = (e) => {
       let interim = "", final = "";
@@ -712,7 +711,8 @@
       speak(pendingGreeting, () => {
         orb.className = "";
         pendingGreeting = null;
-        if (active) listen();
+        // Small delay so TTS audio fully drains before mic opens
+        setTimeout(() => { if (active) listen(); }, 600);
       });
     } else {
       listen();
