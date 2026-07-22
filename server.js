@@ -28,170 +28,122 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const conversationHistory = new Map();
 
-// ── Tool definitions ─────────────────────────────────────────────────────────
-
-const TOOLS = [
-  {
-    name: "get_weather",
-    description: "Get current weather for a city",
-    input_schema: {
-      type: "object",
-      properties: {
-        city: { type: "string", description: "City name e.g. London" },
-      },
-      required: ["city"],
-    },
-  },
-  {
-    name: "get_news",
-    description: "Get latest top headlines, optionally filtered by topic/keyword",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Topic or keyword e.g. technology, sports, India" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "get_wikipedia",
-    description: "Get a Wikipedia summary for a topic or person",
-    input_schema: {
-      type: "object",
-      properties: {
-        topic: { type: "string", description: "Topic to look up e.g. Eiffel Tower" },
-      },
-      required: ["topic"],
-    },
-  },
-  {
-    name: "get_stock",
-    description: "Get current stock price and info for a company ticker symbol",
-    input_schema: {
-      type: "object",
-      properties: {
-        symbol: { type: "string", description: "Stock ticker symbol e.g. AAPL, TSLA, GOOGL" },
-      },
-      required: ["symbol"],
-    },
-  },
-  {
-    name: "get_sports",
-    description: "Get latest sports scores or news for a sport or team",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Sport or team e.g. cricket, Premier League, NBA" },
-      },
-      required: ["query"],
-    },
-  },
-];
-
 // ── Tool implementations ─────────────────────────────────────────────────────
 
-async function get_weather({ city }) {
+async function get_weather(city) {
   try {
     const geo = await fetch(
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`
-    ).then((r) => r.json());
+    ).then(r => r.json());
     if (!geo.results?.length) return `Could not find city: ${city}`;
     const { latitude, longitude, name, country } = geo.results[0];
     const wx = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-      `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code` +
-      `&temperature_unit=celsius`
-    ).then((r) => r.json());
+      `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=celsius`
+    ).then(r => r.json());
     const c = wx.current;
     const codes = { 0:"Clear sky",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",
-      45:"Foggy",48:"Icy fog",51:"Light drizzle",61:"Light rain",63:"Moderate rain",
-      65:"Heavy rain",71:"Light snow",73:"Moderate snow",75:"Heavy snow",
-      80:"Rain showers",81:"Moderate showers",82:"Heavy showers",95:"Thunderstorm" };
-    const desc = codes[c.weather_code] || "Unknown";
-    return `${name}, ${country}: ${desc}, ${c.temperature_2m}°C, humidity ${c.relative_humidity_2m}%, wind ${c.wind_speed_10m} km/h`;
-  } catch (e) {
-    return "Weather data unavailable right now.";
-  }
+      45:"Foggy",51:"Light drizzle",61:"Light rain",63:"Moderate rain",65:"Heavy rain",
+      71:"Light snow",80:"Rain showers",95:"Thunderstorm" };
+    return `${name}, ${country}: ${codes[c.weather_code]||"Unknown"}, ${c.temperature_2m}°C, humidity ${c.relative_humidity_2m}%, wind ${c.wind_speed_10m} km/h`;
+  } catch { return "Weather data unavailable."; }
 }
 
-async function get_news({ query = "" }) {
+async function get_news(query = "") {
   try {
-    const url = query
-      ? `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=5&apikey=free`
-      : `https://gnews.io/api/v4/top-headlines?lang=en&max=5&apikey=free`;
-    // fallback: use NewsAPI.org public endpoint (no key needed for headlines)
-    const res = await fetch(
-      `https://api.currentsapi.services/v1/latest-news?language=en&keywords=${encodeURIComponent(query || "world")}`,
-      { headers: { "Authorization": "free" } }
-    );
-    // Use RSS-based approach that needs no key
-    const rss = await fetch(
-      `https://feeds.bbci.co.uk/news/${query ? "world" : "world"}/rss.xml`
-    ).then((r) => r.text());
-    const items = [...rss.matchAll(/<title><!\[CDATA\[([^\]]+)\]/)].slice(1, 6);
-    if (!items.length) {
-      const titles = [...rss.matchAll(/<title>([^<]+)<\/title>/)].slice(1, 6);
-      return titles.map((m, i) => `${i + 1}. ${m[1].trim()}`).join("\n") || "No news found.";
-    }
-    return items.map((m, i) => `${i + 1}. ${m[1].trim()}`).join("\n");
-  } catch (e) {
-    return "News unavailable right now.";
-  }
+    const rss = await fetch("https://feeds.bbci.co.uk/news/world/rss.xml").then(r => r.text());
+    const titles = [...rss.matchAll(/<title>([^<]+)<\/title>/)].slice(1).map(m => m[1].trim());
+    const filtered = query
+      ? titles.filter(t => t.toLowerCase().includes(query.toLowerCase()))
+      : titles;
+    return (filtered.length ? filtered : titles).slice(0, 5).map((t, i) => `${i+1}. ${t}`).join(". ");
+  } catch { return "News unavailable."; }
 }
 
-async function get_wikipedia({ topic }) {
+async function get_wikipedia(topic) {
   try {
-    const search = await fetch(
+    const data = await fetch(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`
-    ).then((r) => r.json());
-    if (search.extract) {
-      return search.extract.slice(0, 600) + (search.extract.length > 600 ? "…" : "");
-    }
-    return `No Wikipedia article found for: ${topic}`;
-  } catch (e) {
-    return "Wikipedia unavailable right now.";
-  }
+    ).then(r => r.json());
+    return data.extract?.slice(0, 500) || `No Wikipedia article found for: ${topic}`;
+  } catch { return "Wikipedia unavailable."; }
 }
 
-async function get_stock({ symbol }) {
+async function get_stock(symbol) {
   try {
     const data = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}?interval=1d&range=1d`
-    ).then((r) => r.json());
+    ).then(r => r.json());
     const meta = data?.chart?.result?.[0]?.meta;
     if (!meta) return `Could not find stock: ${symbol}`;
     const price = meta.regularMarketPrice;
-    const prev = meta.chartPreviousClose;
-    const change = ((price - prev) / prev * 100).toFixed(2);
-    const dir = change >= 0 ? "▲" : "▼";
-    return `${meta.symbol} (${meta.longName || symbol}): $${price} ${dir}${Math.abs(change)}% today. Exchange: ${meta.exchangeName}`;
-  } catch (e) {
-    return "Stock data unavailable right now.";
-  }
+    const prev  = meta.chartPreviousClose;
+    const pct   = ((price - prev) / prev * 100).toFixed(2);
+    return `${meta.symbol}: $${price} (${pct >= 0 ? "+" : ""}${pct}% today)`;
+  } catch { return "Stock data unavailable."; }
 }
 
-async function get_sports({ query }) {
+async function get_sports(query = "") {
   try {
-    const rss = await fetch(
-      `https://feeds.bbci.co.uk/sport/rss.xml`
-    ).then((r) => r.text());
-    const titles = [...rss.matchAll(/<title>([^<]+)<\/title>/)].slice(1, 8);
-    const q = query.toLowerCase();
-    const filtered = titles.filter((m) => m[1].toLowerCase().includes(q));
-    const results = (filtered.length ? filtered : titles).slice(0, 5);
-    return results.map((m, i) => `${i + 1}. ${m[1].trim()}`).join("\n") || "No sports news found.";
-  } catch (e) {
-    return "Sports data unavailable right now.";
-  }
+    const rss = await fetch("https://feeds.bbci.co.uk/sport/rss.xml").then(r => r.text());
+    const titles = [...rss.matchAll(/<title>([^<]+)<\/title>/)].slice(1).map(m => m[1].trim());
+    const filtered = query
+      ? titles.filter(t => t.toLowerCase().includes(query.toLowerCase()))
+      : titles;
+    return (filtered.length ? filtered : titles).slice(0, 5).map((t, i) => `${i+1}. ${t}`).join(". ");
+  } catch { return "Sports data unavailable."; }
 }
 
-const toolFns = { get_weather, get_news, get_wikipedia, get_stock, get_sports };
+// ── Keyword-based tool routing (no tool-use API needed) ──────────────────────
+
+async function fetchToolData(text, sendLog) {
+  const t = text.toLowerCase();
+
+  if (/weather|temperature|forecast|rain|sunny|cold|hot/.test(t)) {
+    const city = text.match(/(?:in|for|at)\s+([A-Za-z\s]+?)(?:\?|$|,)/i)?.[1]?.trim() || "London";
+    sendLog("tool_call", "get_weather", { city });
+    return { tool: "weather", data: await get_weather(city) };
+  }
+
+  if (/news|headline|latest|happening|today/.test(t)) {
+    const query = text.match(/news (?:about|on|regarding)\s+(.+?)(?:\?|$)/i)?.[1] || "";
+    sendLog("tool_call", "get_news", { query });
+    return { tool: "news", data: await get_news(query) };
+  }
+
+  if (/stock|share price|market|nasdaq|nyse|\$[A-Z]{2,5}/.test(t)) {
+    const sym = text.match(/\b([A-Z]{2,5})\b/)?.[1] ||
+                text.match(/(?:stock|shares?) (?:of|for)?\s+(\w+)/i)?.[1] || "AAPL";
+    sendLog("tool_call", "get_stock", { symbol: sym });
+    return { tool: "stock", data: await get_stock(sym) };
+  }
+
+  if (/sport|cricket|football|soccer|basketball|nba|ipl|premier league|tennis|score/.test(t)) {
+    const q = text.match(/(?:about|on|in)\s+([a-z\s]+?)(?:\?|$)/i)?.[1] || "";
+    sendLog("tool_call", "get_sports", { query: q });
+    return { tool: "sports", data: await get_sports(q) };
+  }
+
+  if (/who is|what is|tell me about|explain|wikipedia/.test(t)) {
+    const topic = text.replace(/who is|what is|tell me about|explain|wikipedia/gi, "").replace(/[?]/g, "").trim();
+    if (topic) {
+      sendLog("tool_call", "get_wikipedia", { topic });
+      return { tool: "wiki", data: await get_wikipedia(topic) };
+    }
+  }
+
+  return null; // no tool needed
+}
 
 // ── WebSocket handler ────────────────────────────────────────────────────────
 
 wss.on("connection", (ws) => {
   const sessionId = Date.now().toString();
   conversationHistory.set(sessionId, []);
+
+  const sendLog = (type, tool, input) => {
+    ws.send(JSON.stringify({ type, tool, input }));
+  };
 
   ws.on("message", async (data) => {
     let payload;
@@ -202,49 +154,34 @@ wss.on("connection", (ws) => {
       if (!userText) return;
 
       const history = conversationHistory.get(sessionId);
-      history.push({ role: "user", content: userText });
       ws.send(JSON.stringify({ type: "thinking" }));
 
       try {
+        // 1. Check if a tool should be called
+        const toolResult = await fetchToolData(userText, sendLog);
+
+        // 2. Build the message — inject tool data into context if available
+        let userContent = userText;
+        if (toolResult) {
+          userContent = `${userText}\n\n[Tool data - ${toolResult.tool}]: ${toolResult.data}`;
+        }
+
+        history.push({ role: "user", content: userContent });
+
+        // 3. Stream Claude's response
+        const stream = await client.messages.stream({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1024,
+          system: "You are a helpful, friendly voice assistant. When tool data is provided in [Tool data - ...] brackets, use it to answer the user's question accurately and concisely. Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud.",
+          messages: history,
+        });
+
         let finalText = "";
-
-        const SYSTEM = "You are a helpful, friendly voice assistant with access to weather, news, Wikipedia, stocks, and sports tools. Use them when relevant. Keep responses concise and conversational — spoken aloud, no markdown or bullet points.";
-
-        // agentic loop: handle tool calls, then get final text
-        while (true) {
-          const response = await client.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 1024,
-            system: SYSTEM,
-            tools: TOOLS,
-            messages: history,
-          });
-
-          if (response.stop_reason === "tool_use") {
-            const toolResults = [];
-            for (const block of response.content) {
-              if (block.type === "tool_use") {
-                ws.send(JSON.stringify({ type: "tool_call", tool: block.name }));
-                const result = await (toolFns[block.name]?.(block.input) ?? Promise.resolve("Tool not found"));
-                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: String(result) });
-              }
-            }
-            history.push({ role: "assistant", content: response.content });
-            history.push({ role: "user", content: toolResults });
-            continue;
+        for await (const event of stream) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            finalText += event.delta.text;
+            ws.send(JSON.stringify({ type: "token", text: event.delta.text }));
           }
-
-          // extract text directly from this response — no second API call needed
-          for (const block of response.content) {
-            if (block.type === "text") {
-              finalText += block.text;
-              // send tokens word by word so the UI streams nicely
-              for (const word of block.text.split(" ")) {
-                ws.send(JSON.stringify({ type: "token", text: word + " " }));
-              }
-            }
-          }
-          break;
         }
 
         history.push({ role: "assistant", content: finalText });
@@ -252,7 +189,7 @@ wss.on("connection", (ws) => {
         ws.send(JSON.stringify({ type: "done", fullText: finalText }));
 
       } catch (err) {
-        console.error("Claude API error:", err.message);
+        console.error("Error:", err.message);
         ws.send(JSON.stringify({ type: "error", message: "Sorry, I encountered an error. Please try again." }));
       }
     }
