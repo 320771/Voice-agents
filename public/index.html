@@ -727,25 +727,28 @@
     _bargeSR = r;
     r.lang = "en-US";
     r.continuous = true;
-    r.interimResults = false; // finals only — interim results fire on background noise
+    r.interimResults = true; // needed for fast barge-in — we act on interim hits
 
     r.onresult = (e) => {
       if (_bargeSR !== r) return;
       if (!_ttsPlaying) return;
 
-      // Only process final results with sufficient confidence and length
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i];
-        if (!result.isFinal) continue;
         const transcript = result[0].transcript.trim();
-        const confidence = result[0].confidence || 0;
+        const wordCount  = transcript.split(/\s+/).filter(Boolean).length;
 
-        // Require at least 3 words AND confidence > 0.65 — filters noise/coughs/TV
-        const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-        if (wordCount < 3) continue;
-        if (confidence > 0 && confidence < 0.65) continue;
+        if (result.isFinal) {
+          // Final result: require 2+ words (confidence is available here)
+          const confidence = result[0].confidence || 0;
+          if (wordCount < 2) continue;
+          if (confidence > 0 && confidence < 0.55) continue;
+        } else {
+          // Interim result: require 3+ words to avoid noise — confidence not reliable
+          if (wordCount < 3) continue;
+        }
 
-        log("warn", "BARGE", `Barge-in: "${transcript.slice(0, 40)}" (conf=${confidence.toFixed(2)})`);
+        log("warn", "BARGE", `Barge-in (${result.isFinal ? "final" : "interim"}): "${transcript.slice(0, 40)}"`);
         stopBargeMonitor();
         stopTTS();
         orb.className = "";
