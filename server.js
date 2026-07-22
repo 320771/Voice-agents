@@ -355,6 +355,64 @@ async function fetchToolData(text, sendLog) {
   return null;
 }
 
+// ── Tool failure detection ────────────────────────────────────────────────────
+
+const FAILURE_SUFFIXES = ["unavailable.", "unavailable", "unavailable right now.", "data unavailable.", "right now."];
+
+function isToolFailure(data) {
+  if (!data) return false;
+  const lower = data.toLowerCase().trim();
+  return FAILURE_SUFFIXES.some(s => lower.endsWith(s)) || lower === "need_city";
+}
+
+// ── Pending retry store ───────────────────────────────────────────────────────
+// Map<retryId, { userText, userName, whatsappPhone, wsRef, attempts, createdAt }>
+const pendingRetries = new Map();
+let retryIdSeq = 0;
+
+function scheduleRetry(userText, userName, whatsappPhone, wsRef) {
+  const id = ++retryIdSeq;
+  pendingRetries.set(id, { userText, userName, whatsappPhone, wsRef, attempts: 0, createdAt: Date.now() });
+  slog(`RETRY [${id}]: Queued retry for "${userText.slice(0, 60)}" (user: ${userName})`);
+  return id;
+}
+
+// Background retry loop — fires every 30 seconds
+setInterval(async () => {
+  if (!pendingRetries.size) return;
+  const MAX_AGE_MS  = 10 * 60 * 1000; // give up after 10 min
+  const MAX_TRIES   = 12;
+  const now = Date.now();
+
+  for (const [id, entry] of pendingRetries) {
+    if (now - entry.createdAt > MAX_AGE_MS || entry.attempts >= MAX_TRIES) {
+      pendingRetries.delete(id);
+      slog(`RETRY [${id}]: Gave up after ${entry.attempts} attempts`);
+      continue;
+    }
+    entry.attempts++;
+    try {
+      const result = await fetchToolData(entry.userText, () => {});
+      if (!result || isToolFailure(result.data)) continue; // still failing
+
+      pendingRetries.delete(id);
+      const msg = `Got that update for you! ${result.data}`;
+      slog(`RETRY [${id}]: Success on attempt ${entry.attempts} — delivering to ${entry.userName}`);
+
+      // Deliver via WebSocket if still open, else WhatsApp
+      const wsAlive = entry.wsRef?.readyState === 1; // 1 = OPEN
+      if (wsAlive) {
+        entry.wsRef.send(JSON.stringify({ type: "callback_result", text: msg }));
+      } else if (entry.whatsappPhone) {
+        await sendWhatsApp(entry.whatsappPhone, msg).catch(() => {});
+        slog(`RETRY [${id}]: Sent via WhatsApp to ${entry.whatsappPhone}`);
+      }
+    } catch {
+      // swallow — will retry next interval
+    }
+  }
+}, 30_000);
+
 // ── WebSocket handler ────────────────────────────────────────────────────────
 
 wss.on("connection", (ws) => {
@@ -459,10 +517,21 @@ wss.on("connection", (ws) => {
         const toolResult = await fetchToolData(userText, sendLog);
         if (toolResult) slog("TOOL RESULT:", toolResult.tool, "=>", toolResult.data.slice(0, 120));
 
-        // 2. Build the message — inject tool data if available
+        // 2. Handle tool failure — queue retry and tell Claude to respond gracefully
+        const toolFailed = toolResult && isToolFailure(toolResult.data);
+        if (toolFailed) {
+          scheduleRetry(userText, userName, null /* whatsapp phone not tracked here */, ws);
+          slog(`TOOL FAILURE: ${toolResult.tool} returned "${toolResult.data}" — queued retry`);
+        }
+
+        // 3. Build the message — inject tool data or failure hint
         let userContent = userText;
-        if (toolResult) {
+        if (toolResult && !toolFailed) {
           userContent = `${userText}\n\n[Tool data - ${toolResult.tool}]: ${toolResult.data}`;
+        } else if (toolFailed) {
+          userContent = `${userText}\n\n[Tool data - ${toolResult.tool}]: SERVICE_TEMPORARILY_UNAVAILABLE — ` +
+            `Tell the user warmly that you're having a little trouble fetching that right now and you'll get back to them once it's sorted. ` +
+            `Do not mention a technical error. Keep it conversational and brief.`;
         }
 
         history.push({ role: "user", content: userContent });

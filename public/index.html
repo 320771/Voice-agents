@@ -530,7 +530,36 @@
     }
 
     if (msg.type === "tool_call") {
-      setVoiceStatus(`Fetching ${msg.tool ? msg.tool.replace("get_", "") : "data"}…`);
+      const toolLabel = msg.tool ? msg.tool.replace("get_", "") : "data";
+      setVoiceStatus(`Fetching ${toolLabel}…`);
+      // Speak a filler phrase so the voice session doesn't go silent
+      if (lastSource === "voice") {
+        const fillers = [
+          "Let me check that for you.",
+          "One moment, looking that up.",
+          "Give me just a second.",
+          "Sure, fetching that now.",
+          "On it, just a moment.",
+          "Let me pull that up for you.",
+          "Hold on, checking right now.",
+        ];
+        const phrase = fillers[Math.floor(Math.random() * fillers.length)];
+        speak(phrase, null); // no onEnd — real answer arrives in "done" and will cancel this
+      }
+    }
+
+    if (msg.type === "callback_result") {
+      // Server fetched a deferred result — show it proactively
+      if (lastSource !== "voice") {
+        appendAssistantBubble();
+        if (currentAssistantEl) {
+          currentAssistantEl.querySelector(".bubble").textContent = msg.text;
+        }
+        currentAssistantEl = null;
+      } else {
+        orb.className = "speaking";
+        speak(msg.text, () => { orb.className = ""; if (active) setTimeout(() => listen(), 600); });
+      }
     }
 
     if (msg.type === "token") {
