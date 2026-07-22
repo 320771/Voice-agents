@@ -1,43 +1,63 @@
-// Product search and deals — Amazon (via RapidAPI) + Flipkart (via Affiliate API)
-//
-// Required env vars (set whichever platforms you use):
-//   RAPIDAPI_KEY              — RapidAPI key (used for Amazon Real-Time Amazon Data API)
-//   FLIPKART_AFFILIATE_ID     — Flipkart affiliate tracking ID
-//   FLIPKART_AFFILIATE_TOKEN  — Flipkart affiliate API token
+// Product search and deals — Amazon India + Flipkart
+// Uses DuckDuckGo HTML search (no API key, no registration required).
+// Searches DuckDuckGo with site:amazon.in or site:flipkart.com to surface
+// relevant product listings with prices from both platforms.
 
 import fetch from "node-fetch";
 
-const RAPIDAPI_KEY          = process.env.RAPIDAPI_KEY || "";
-const FLIPKART_AFFILIATE_ID = process.env.FLIPKART_AFFILIATE_ID || "";
-const FLIPKART_TOKEN        = process.env.FLIPKART_AFFILIATE_TOKEN || "";
-
-// ── Amazon ────────────────────────────────────────────────────────────────────
+const DDG_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-IN,en;q=0.9",
+  "Referer": "https://duckduckgo.com/",
+};
 
 /**
- * Search Amazon products via RapidAPI "Real-Time Amazon Data" endpoint.
- * Returns a short voice-friendly summary of the top 3 results.
+ * Search DuckDuckGo HTML and extract result snippets.
+ * Returns up to maxResults { title, snippet, url } objects.
  */
-export async function searchAmazon(query, { country = "IN", maxResults = 3 } = {}) {
-  if (!RAPIDAPI_KEY) return "Amazon search is not configured. Please set the RAPIDAPI_KEY environment variable.";
+async function ddgSearch(query, { maxResults = 3 } = {}) {
+  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=in-en`;
+  const html = await fetch(url, { headers: DDG_HEADERS }).then(r => r.text());
+
+  const results = [];
+  // DuckDuckGo wraps each result in <div class="result__body"> / <a class="result__a"> / <a class="result__snippet">
+  const blockRx = /class="result__body">([\s\S]*?)(?=class="result__body"|<\/div>\s*<\/div>\s*<\/div>)/g;
+  let bm;
+  while ((bm = blockRx.exec(html)) !== null && results.length < maxResults) {
+    const block = bm[1];
+    const titleM   = block.match(/class="result__a"[^>]*>([^<]{5,120})<\/a>/);
+    const snippetM = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+    const urlM     = block.match(/class="result__url"[^>]*>([^<]+)<\/a>/);
+    if (titleM) {
+      const snippet = snippetM ? snippetM[1].replace(/<[^>]+>/g, "").trim() : "";
+      results.push({
+        title: titleM[1].replace(/<[^>]+>/g, "").trim(),
+        snippet,
+        url: urlM ? urlM[1].trim() : "",
+      });
+    }
+  }
+  return results;
+}
+
+/** Extract a price string from a snippet/title, e.g. "₹14,999" or "Rs. 14999" */
+function extractPrice(text) {
+  const m = text.match(/(?:₹|Rs\.?\s*)[\d,]+(?:\.\d+)?/i);
+  return m ? m[0].replace(/\s/g, "") : "";
+}
+
+// ── Amazon India ──────────────────────────────────────────────────────────────
+
+export async function searchAmazon(query, { maxResults = 3 } = {}) {
   try {
-    const url = `https://real-time-amazon-data.p.rapidapi.com/search?query=${encodeURIComponent(query)}&page=1&country=${country}&sort_by=RELEVANCE&product_condition=ALL`;
-    const res = await fetch(url, {
-      headers: {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
-        "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com",
-      },
-    });
-    if (!res.ok) return `Amazon search unavailable (HTTP ${res.status}).`;
-    const data = await res.json();
-    const products = data?.data?.products?.slice(0, maxResults) || [];
-    if (!products.length) return `No Amazon results found for "${query}".`;
-    const lines = products.map((p, i) => {
-      const price  = p.product_price || p.product_original_price || "price unavailable";
-      const rating = p.product_star_rating ? ` ★${p.product_star_rating}` : "";
-      const deal   = p.product_original_price && p.product_price && p.product_price !== p.product_original_price
-        ? ` (was ${p.product_original_price})`
-        : "";
-      return `${i + 1}. ${p.product_title?.slice(0, 80)} — ${price}${deal}${rating}`;
+    const results = await ddgSearch(`${query} site:amazon.in`, { maxResults });
+    if (!results.length) return `No Amazon results found for "${query}".`;
+
+    const lines = results.map((r, i) => {
+      const price = extractPrice(r.snippet) || extractPrice(r.title) || "";
+      const title = r.title.replace(/Amazon\.in\s*:?\s*/i, "").slice(0, 80);
+      return `${i + 1}. ${title}${price ? ` — ${price}` : ""}`;
     });
     return `Amazon results for "${query}": ${lines.join(". ")}`;
   } catch {
@@ -45,31 +65,17 @@ export async function searchAmazon(query, { country = "IN", maxResults = 3 } = {
   }
 }
 
-/**
- * Get Amazon deals / discounts for a category.
- * Uses the "best-sellers" endpoint which surfaces discounted popular products.
- */
-export async function getAmazonDeals(category = "", { country = "IN" } = {}) {
-  if (!RAPIDAPI_KEY) return "Amazon deals are not configured. Please set the RAPIDAPI_KEY environment variable.";
+export async function getAmazonDeals({ maxResults = 3 } = {}) {
   try {
-    const cat = category ? encodeURIComponent(category) : "deals-and-promotions";
-    const url = `https://real-time-amazon-data.p.rapidapi.com/best-sellers?category=${cat}&type=BEST_SELLERS&page=1&country=${country}`;
-    const res = await fetch(url, {
-      headers: {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
-        "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com",
-      },
+    const results = await ddgSearch("best deals discount offers today site:amazon.in", { maxResults });
+    if (!results.length) return "Amazon deals unavailable right now.";
+
+    const lines = results.map((r, i) => {
+      const price = extractPrice(r.snippet) || extractPrice(r.title) || "";
+      const title = r.title.replace(/Amazon\.in\s*:?\s*/i, "").slice(0, 80);
+      return `${i + 1}. ${title}${price ? ` — ${price}` : ""}`;
     });
-    if (!res.ok) return `Amazon deals unavailable (HTTP ${res.status}).`;
-    const data = await res.json();
-    const products = data?.data?.best_sellers?.slice(0, 3) || [];
-    if (!products.length) return `No Amazon deals found${category ? ` for "${category}"` : ""}.`;
-    const lines = products.map((p, i) => {
-      const price  = p.product_price || "price unavailable";
-      const rating = p.product_star_rating ? ` ★${p.product_star_rating}` : "";
-      return `${i + 1}. ${p.product_title?.slice(0, 80)} — ${price}${rating}`;
-    });
-    return `Top Amazon deals${category ? ` in ${category}` : ""}: ${lines.join(". ")}`;
+    return `Top Amazon deals: ${lines.join(". ")}`;
   } catch {
     return "Amazon deals unavailable.";
   }
@@ -77,38 +83,15 @@ export async function getAmazonDeals(category = "", { country = "IN" } = {}) {
 
 // ── Flipkart ──────────────────────────────────────────────────────────────────
 
-/**
- * Search Flipkart products via the Affiliate API.
- * Requires FLIPKART_AFFILIATE_ID and FLIPKART_AFFILIATE_TOKEN.
- */
 export async function searchFlipkart(query, { maxResults = 3 } = {}) {
-  if (!FLIPKART_AFFILIATE_ID || !FLIPKART_TOKEN) {
-    return "Flipkart search is not configured. Please set FLIPKART_AFFILIATE_ID and FLIPKART_AFFILIATE_TOKEN.";
-  }
   try {
-    const url = `https://affiliate-api.flipkart.net/affiliate/search/json?query=${encodeURIComponent(query)}&resultCount=${maxResults}`;
-    const res = await fetch(url, {
-      headers: {
-        "Fk-Affiliate-Id": FLIPKART_AFFILIATE_ID,
-        "Fk-Affiliate-Token": FLIPKART_TOKEN,
-      },
-    });
-    if (!res.ok) return `Flipkart search unavailable (HTTP ${res.status}).`;
-    const data = await res.json();
-    const products = data?.productInfoList?.slice(0, maxResults) || [];
-    if (!products.length) return `No Flipkart results found for "${query}".`;
-    const lines = products.map((item, i) => {
-      const p       = item.productBaseInfo?.productAttributes;
-      const pricing = item.productBaseInfo?.productPaymentInfo;
-      const title   = p?.title?.slice(0, 80) || "Product";
-      const price   = pricing?.flipkartSpecialPrice
-        ? `₹${pricing.flipkartSpecialPrice}`
-        : pricing?.mrp ? `₹${pricing.mrp}` : "price unavailable";
-      const mrp     = pricing?.mrp && pricing?.flipkartSpecialPrice && pricing.mrp !== pricing.flipkartSpecialPrice
-        ? ` (MRP ₹${pricing.mrp})`
-        : "";
-      const rating  = p?.productRating ? ` ★${p.productRating}` : "";
-      return `${i + 1}. ${title} — ${price}${mrp}${rating}`;
+    const results = await ddgSearch(`${query} site:flipkart.com`, { maxResults });
+    if (!results.length) return `No Flipkart results found for "${query}".`;
+
+    const lines = results.map((r, i) => {
+      const price = extractPrice(r.snippet) || extractPrice(r.title) || "";
+      const title = r.title.replace(/Flipkart\.com\s*:?\s*/i, "").slice(0, 80);
+      return `${i + 1}. ${title}${price ? ` — ${price}` : ""}`;
     });
     return `Flipkart results for "${query}": ${lines.join(". ")}`;
   } catch {
@@ -116,38 +99,17 @@ export async function searchFlipkart(query, { maxResults = 3 } = {}) {
   }
 }
 
-/**
- * Get Flipkart top offers / deals via the Affiliate API listing endpoint.
- */
-export async function getFlipkartDeals(category = "", { maxResults = 3 } = {}) {
-  if (!FLIPKART_AFFILIATE_ID || !FLIPKART_TOKEN) {
-    return "Flipkart deals are not configured. Please set FLIPKART_AFFILIATE_ID and FLIPKART_AFFILIATE_TOKEN.";
-  }
+export async function getFlipkartDeals({ maxResults = 3 } = {}) {
   try {
-    // Use the listing API; if no category, default to a broad electronics search
-    const query = category || "deals offer discount";
-    const url = `https://affiliate-api.flipkart.net/affiliate/search/json?query=${encodeURIComponent(query)}&resultCount=${maxResults}&sort=popularity`;
-    const res = await fetch(url, {
-      headers: {
-        "Fk-Affiliate-Id": FLIPKART_AFFILIATE_ID,
-        "Fk-Affiliate-Token": FLIPKART_TOKEN,
-      },
+    const results = await ddgSearch("best deals sale discount offers today site:flipkart.com", { maxResults });
+    if (!results.length) return "Flipkart deals unavailable right now.";
+
+    const lines = results.map((r, i) => {
+      const price = extractPrice(r.snippet) || extractPrice(r.title) || "";
+      const title = r.title.replace(/Flipkart\.com\s*:?\s*/i, "").slice(0, 80);
+      return `${i + 1}. ${title}${price ? ` — ${price}` : ""}`;
     });
-    if (!res.ok) return `Flipkart deals unavailable (HTTP ${res.status}).`;
-    const data = await res.json();
-    const products = data?.productInfoList?.slice(0, maxResults) || [];
-    if (!products.length) return `No Flipkart deals found${category ? ` for "${category}"` : ""}.`;
-    const lines = products.map((item, i) => {
-      const p       = item.productBaseInfo?.productAttributes;
-      const pricing = item.productBaseInfo?.productPaymentInfo;
-      const title   = p?.title?.slice(0, 80) || "Product";
-      const price   = pricing?.flipkartSpecialPrice
-        ? `₹${pricing.flipkartSpecialPrice}`
-        : pricing?.mrp ? `₹${pricing.mrp}` : "price unavailable";
-      const discount = pricing?.discount ? ` (${pricing.discount}% off)` : "";
-      return `${i + 1}. ${title} — ${price}${discount}`;
-    });
-    return `Flipkart deals${category ? ` in ${category}` : ""}: ${lines.join(". ")}`;
+    return `Top Flipkart deals: ${lines.join(". ")}`;
   } catch {
     return "Flipkart deals unavailable.";
   }
@@ -155,10 +117,6 @@ export async function getFlipkartDeals(category = "", { maxResults = 3 } = {}) {
 
 // ── Combined helpers ──────────────────────────────────────────────────────────
 
-/**
- * Search both platforms and combine results.
- * param format: "PLATFORM::QUERY"  e.g. "amazon::iPhone 15" / "flipkart::earphones" / "both::laptop"
- */
 export async function searchProducts(param = "") {
   const sep = param.indexOf("::");
   let platform = "both";
@@ -169,40 +127,29 @@ export async function searchProducts(param = "") {
   }
   if (!query) return "Please specify a product to search for.";
 
-  if (platform === "amazon") return await searchAmazon(query);
+  if (platform === "amazon")   return await searchAmazon(query);
   if (platform === "flipkart") return await searchFlipkart(query);
 
-  // both — run in parallel, combine
   const [amz, fk] = await Promise.all([searchAmazon(query), searchFlipkart(query)]);
   const parts = [];
-  if (!amz.includes("unavailable") && !amz.includes("not configured")) parts.push(`Amazon — ${amz}`);
-  if (!fk.includes("unavailable") && !fk.includes("not configured")) parts.push(`Flipkart — ${fk}`);
-  if (!parts.length) return `Product search unavailable for "${query}".`;
+  if (!amz.includes("unavailable") && !amz.includes("No Amazon")) parts.push(amz);
+  if (!fk.includes("unavailable") && !fk.includes("No Flipkart")) parts.push(fk);
+  if (!parts.length) return `Product search for "${query}" is unavailable right now.`;
   return parts.join(" | ");
 }
 
-/**
- * Get deals from either/both platforms.
- * param format: "PLATFORM::CATEGORY"  e.g. "amazon::electronics" / "flipkart::mobile" / "deals"
- */
 export async function getDeals(param = "") {
   const sep = param.indexOf("::");
   let platform = "both";
-  let category = "";
-  if (sep !== -1) {
-    platform = param.slice(0, sep).trim().toLowerCase();
-    category = param.slice(sep + 2).trim();
-  } else {
-    category = param.trim();
-  }
+  if (sep !== -1) platform = param.slice(0, sep).trim().toLowerCase();
 
-  if (platform === "amazon") return await getAmazonDeals(category);
-  if (platform === "flipkart") return await getFlipkartDeals(category);
+  if (platform === "amazon")   return await getAmazonDeals();
+  if (platform === "flipkart") return await getFlipkartDeals();
 
-  const [amz, fk] = await Promise.all([getAmazonDeals(category), getFlipkartDeals(category)]);
+  const [amz, fk] = await Promise.all([getAmazonDeals(), getFlipkartDeals()]);
   const parts = [];
-  if (!amz.includes("unavailable") && !amz.includes("not configured")) parts.push(`Amazon — ${amz}`);
-  if (!fk.includes("unavailable") && !fk.includes("not configured")) parts.push(`Flipkart — ${fk}`);
+  if (!amz.includes("unavailable")) parts.push(amz);
+  if (!fk.includes("unavailable"))  parts.push(fk);
   if (!parts.length) return "Deals unavailable right now.";
   return parts.join(" | ");
 }
