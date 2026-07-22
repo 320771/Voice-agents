@@ -40,37 +40,41 @@ export function listUsers() {
   return Object.keys(data.users).filter(k => data.users[k]?.summary);
 }
 
-/** Return the stored summary string for a user, or null if none */
-export function getUserSummary(name) {
+/** Return the stored memory record for a user, or null if none */
+export function getUserMemory(name) {
   const data = loadAll();
-  return data.users[nameKey(name)]?.summary || null;
+  return data.users[nameKey(name)] || null;
 }
 
-/** Save (overwrite) the summary for a user */
-export function saveSummary(name, summary) {
+/** Save (overwrite) summary + raw conversation text for a user */
+export function saveSummary(name, summary, rawText = "") {
   const data = loadAll();
   const key = nameKey(name);
-  data.users[key] = { summary, updatedAt: new Date().toISOString() };
+  data.users[key] = { summary, rawText, updatedAt: new Date().toISOString() };
   saveAll(data);
 }
 
 /** Build the memory context string injected into Claude's system prompt */
-export function buildMemoryContext(name, summary) {
-  if (!summary) {
+export function buildMemoryContext(name, memory) {
+  if (!memory?.summary) {
     return name && name !== "anonymous"
       ? `\n\nYou are speaking with ${name}. This is their first session.`
       : "";
   }
-  return `\n\nYou are speaking with ${name || "the user"}. Summary of their previous session: ${summary}`;
+  let ctx = `\n\nYou are speaking with ${name || "the user"}. Summary of their previous session: ${memory.summary}`;
+  if (memory.rawText) {
+    ctx += `\n\nPrevious session topics (use this to answer questions about what was discussed): ${memory.rawText.slice(0, 600)}`;
+  }
+  return ctx;
 }
 
 /** Build the greeting message sent to the user at session start */
-export function buildGreeting(name, summary) {
+export function buildGreeting(name, memory) {
   const firstName = (name || "").trim().split(" ")[0];
-  if (!summary) {
+  if (!memory?.summary) {
     return firstName ? `Hello ${firstName}! Great to meet you. How can I help you today?` : null;
   }
-  return `Welcome back${firstName ? ", " + firstName : ""}! ${summary}`;
+  return `Welcome back${firstName ? ", " + firstName : ""}! ${memory.summary}`;
 }
 
 // ── Cross-sell helpers ────────────────────────────────────────────────────────

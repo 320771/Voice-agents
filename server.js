@@ -9,7 +9,7 @@ import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
 import { searchProducts, getDeals } from "./products.js";
-import { getUserSummary, saveSummary, buildMemoryContext, buildGreeting, listUsers,
+import { getUserMemory, saveSummary, buildMemoryContext, buildGreeting, listUsers,
          buildCrossSellContext, queueCrossSellOpportunities, getNextCrossSellOffer, markCrossSellPresented } from "./memory.js";
 import { OFFERS, detectOpportunities, getOffer } from "./crosssell-library.js";
 import { sendWhatsApp, verifyWebhook, parseIncomingMessages, markAsRead } from "./whatsapp.js";
@@ -371,11 +371,14 @@ async function fetchToolData(text, sendLog) {
 // ── Tool failure detection ────────────────────────────────────────────────────
 
 const FAILURE_SUFFIXES = ["unavailable.", "unavailable", "unavailable right now.", "data unavailable.", "right now."];
+const FAILURE_PREFIXES = ["could not fetch", "no amazon results", "no flipkart results", "product search for"];
 
 function isToolFailure(data) {
   if (!data) return false;
   const lower = data.toLowerCase().trim();
-  return FAILURE_SUFFIXES.some(s => lower.endsWith(s)) || lower === "need_city";
+  return FAILURE_SUFFIXES.some(s => lower.endsWith(s))
+    || FAILURE_PREFIXES.some(p => lower.startsWith(p))
+    || lower === "need_city";
 }
 
 // ── Pending retry store ───────────────────────────────────────────────────────
@@ -434,23 +437,23 @@ wss.on("connection", (ws) => {
   conversationHistory.set(sessionId, []);
 
   let userName = "anonymous";
-  let systemPrompt = buildSystemPrompt(userName, null);
+  let systemPrompt = buildSystemPrompt(userName, null); // will be rebuilt on set_user
 
   // Send known users list so the UI can show autocomplete suggestions
   ws.send(JSON.stringify({ type: "known_users", users: listUsers() }));
 
-  function buildSystemPrompt(name, summary) {
+  function buildSystemPrompt(name, memory) {
     return "You are a helpful, friendly voice assistant. " +
       "When tool data is provided in [Tool data - ...] brackets, use it to answer accurately and concisely. " +
       "Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud." +
-      buildMemoryContext(name, summary) +
+      buildMemoryContext(name, memory) +
       buildCrossSellContext(name, OFFERS);
   }
 
   function loadUserMemory(name) {
     userName = name;
-    const summary = getUserSummary(name);
-    systemPrompt = buildSystemPrompt(name, summary);
+    const memory = getUserMemory(name);
+    systemPrompt = buildSystemPrompt(name, memory);
     const pendingOffer = getNextCrossSellOffer(name);
     if (pendingOffer) {
       slog(`CROSSSELL [${name}]: Active offer in prompt — ${pendingOffer}`);
@@ -458,10 +461,10 @@ wss.on("connection", (ws) => {
     } else {
       slog(`CROSSSELL [${name}]: No pending offer for this session`);
     }
-    const greeting = buildGreeting(name, summary);
+    const greeting = buildGreeting(name, memory);
     if (greeting) {
       ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
-      slog(`MEMORY [${name}]: Sent greeting — ${summary ? "returning user" : "new user"}`);
+      slog(`MEMORY [${name}]: Sent greeting — ${memory ? "returning user" : "new user"}`);
     }
   }
 
@@ -493,8 +496,12 @@ wss.on("connection", (ws) => {
       });
       const summary = res.content[0]?.text?.trim() || placeholder;
 
-      // Overwrite placeholder with the real Claude-generated summary
-      saveSummary(userName, summary);
+      // Save summary + raw conversation text (for context injection next session)
+      const rawText = history
+        .filter(m => m.role === "user")
+        .map(m => m.content.split("\n")[0].slice(0, 200)) // first line only, strip tool data
+        .join(" ");
+      saveSummary(userName, summary, rawText);
       slog(`MEMORY [${userName}]: Summary saved — ${summary.slice(0, 80)}`);
 
       // 1. Mark whatever offer was injected THIS session as presented (before queuing new ones)
@@ -504,8 +511,8 @@ wss.on("connection", (ws) => {
         slog(`CROSSSELL [${userName}]: Marked presented — ${presentedThisSession}`);
       }
 
-      // 2. Detect new opportunities from this session's summary → queue for NEXT session
-      const opportunityIds = detectOpportunities([], summary);
+      // 2. Detect cross-sell opportunities from raw user messages (keywords survive here)
+      const opportunityIds = detectOpportunities([], rawText);
       if (opportunityIds.length) {
         const resolvedOffers = opportunityIds.map(id => getOffer(id)).filter(Boolean);
         queueCrossSellOpportunities(userName, resolvedOffers);
