@@ -8,7 +8,9 @@ import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
-import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers } from "./memory.js";
+import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers,
+         buildCrossSellContext, queueCrossSellOpportunities, getNextCrossSellOffer, markCrossSellPresented } from "./memory.js";
+import { OFFERS, detectOpportunities, getOffer } from "./crosssell-library.js";
 import { sendWhatsApp, verifyWebhook, parseIncomingMessages, markAsRead } from "./whatsapp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -370,7 +372,8 @@ wss.on("connection", (ws) => {
     return "You are a helpful, friendly voice assistant. " +
       "When tool data is provided in [Tool data - ...] brackets, use it to answer accurately and concisely. " +
       "Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud." +
-      buildMemoryContext(name, sessions);
+      buildMemoryContext(name, sessions) +
+      buildCrossSellContext(name, OFFERS);
   }
 
   function loadUserMemory(name) {
@@ -408,6 +411,21 @@ wss.on("connection", (ws) => {
       const topics = topicsPart ? topicsPart.split(",").map(t => t.trim()).filter(Boolean) : [];
       saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt: new Date().toISOString(), summary, topics });
       slog(`MEMORY [${userName}]: Session saved — ${summary.slice(0, 80)}`);
+
+      // Detect cross-sell opportunities from this session's topics + summary
+      const opportunityIds = detectOpportunities(topics, summary);
+      if (opportunityIds.length) {
+        const resolvedOffers = opportunityIds.map(id => getOffer(id)).filter(Boolean);
+        queueCrossSellOpportunities(userName, resolvedOffers);
+        slog(`CROSSSELL [${userName}]: Queued ${opportunityIds.join(", ")}`);
+      }
+
+      // Mark current cross-sell as presented (it was in the system prompt this session)
+      const presented = getNextCrossSellOffer(userName);
+      if (presented) {
+        markCrossSellPresented(userName, presented);
+        slog(`CROSSSELL [${userName}]: Marked presented — ${presented}`);
+      }
     } catch (e) {
       slog("MEMORY ERROR:", e.message);
     }
