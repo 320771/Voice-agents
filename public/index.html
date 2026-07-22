@@ -178,141 +178,109 @@
     let recognition = null;
     let currentAssistantEl = null;
     let active = false;
-    let agentTalking = false;
-    let silenceTimer = null;
-    let pendingText = "";
 
+    // ── WebSocket messages from server ──────────────────────────────
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
 
       if (msg.type === "thinking") {
-        setStatus("Agent thinking…");
+        setStatus("Agent is thinking…");
         orb.className = "";
         appendAssistantBubble();
       }
 
-      if (msg.type === "token") {
-        if (currentAssistantEl) {
-          currentAssistantEl.querySelector(".text").textContent += msg.text;
-          transcriptBox.scrollTop = transcriptBox.scrollHeight;
-        }
+      if (msg.type === "token" && currentAssistantEl) {
+        currentAssistantEl.querySelector(".text").textContent += msg.text;
+        transcriptBox.scrollTop = transcriptBox.scrollHeight;
       }
 
       if (msg.type === "done") {
-        agentTalking = true;
-        orb.className = "speaking";
-        setStatus("Agent speaking… (you can interrupt anytime)");
-        speak(msg.fullText, () => {
-          agentTalking = false;
-          currentAssistantEl = null;
-          if (active) {
-            orb.className = "listening";
-            setStatus("Listening…");
-          }
-        });
         currentAssistantEl = null;
+        orb.className = "speaking";
+        setStatus("Agent speaking…");
+        // speak the reply, then loop back to listening
+        speak(msg.fullText, () => {
+          if (active) listen(); // ← key: restart mic after agent finishes
+        });
       }
 
       if (msg.type === "error") {
-        agentTalking = false;
-        orb.className = active ? "listening" : "";
-        setStatus(active ? "Listening…" : msg.message);
+        currentAssistantEl = null;
+        orb.className = "";
+        setStatus("Error — retrying…");
+        if (active) setTimeout(listen, 800);
       }
 
       if (msg.type === "reset_ok") {
         transcriptBox.innerHTML = "";
-        setStatus(active ? "Listening…" : "Click Start to begin talking");
+        setStatus(active ? "Listening… speak now" : "Click Start to begin");
       }
     };
 
+    // ── TTS ─────────────────────────────────────────────────────────
     function speak(text, onEnd) {
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
       utter.rate = 1.05;
-      utter.pitch = 1;
       utter.onend = onEnd || null;
       window.speechSynthesis.speak(utter);
     }
 
-    function sendPending() {
-      const text = pendingText.trim();
-      pendingText = "";
-      if (!text) return;
-      // interrupt agent if talking
-      if (agentTalking) {
-        window.speechSynthesis.cancel();
-        agentTalking = false;
-      }
-      appendUserMessage(text);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "user_speech", text }));
-      }
-      orb.className = "";
-      setStatus("Agent thinking…");
-    }
-
-    function beginSession() {
-      if (!SpeechRecognition) {
-        setStatus("Speech recognition not supported. Use Chrome.");
-        return;
-      }
-      active = true;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
+    // ── Single listen turn (one utterance) ──────────────────────────
+    function listen() {
+      if (!active) return;
 
       recognition = new SpeechRecognition();
       recognition.lang = "en-US";
-      recognition.continuous = true;
+      recognition.continuous = false;      // one utterance at a time
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
-      recognition.onstart = () => {
-        orb.className = "listening";
-        setStatus("Listening…");
-      };
+      orb.className = "listening";
+      setStatus("Listening… speak now");
 
       recognition.onresult = (e) => {
-        // collect all results into pendingText
         let interim = "";
+        let final = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          const t = e.results[i][0].transcript;
-          if (e.results[i].isFinal) {
-            pendingText += t + " ";
-          } else {
-            interim = t;
-          }
+          if (e.results[i].isFinal) final += e.results[i][0].transcript;
+          else interim += e.results[i][0].transcript;
         }
-
-        // show live interim text in status
         if (interim) setStatus("You: " + interim);
-
-        // debounce: send after 1.2s of silence
-        clearTimeout(silenceTimer);
-        if (pendingText.trim()) {
-          silenceTimer = setTimeout(sendPending, 1200);
+        if (final) {
+          appendUserMessage(final.trim());
+          ws.send(JSON.stringify({ type: "user_speech", text: final.trim() }));
+          orb.className = "";
+          setStatus("Agent is thinking…");
         }
       };
 
       recognition.onerror = (e) => {
-        if (e.error === "no-speech") return; // ignore silence gaps
+        if (e.error === "no-speech" && active) { listen(); return; }
         if (e.error !== "aborted") setStatus("Mic error: " + e.error);
       };
 
+      // onend fires when the utterance is done — only loop back if
+      // we haven't already sent speech to the agent (agent side handles that)
       recognition.onend = () => {
-        // continuous mode: auto-restart if still active
-        if (active) {
-          try { recognition.start(); } catch (_) {}
-        }
+        // if orb is still "listening" it means no speech was captured → retry
+        if (active && orb.className === "listening") listen();
       };
 
       recognition.start();
     }
 
+    // ── Session control ─────────────────────────────────────────────
+    function beginSession() {
+      if (!SpeechRecognition) { setStatus("Use Chrome — Speech API not available"); return; }
+      active = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      listen();
+    }
+
     function endSession() {
       active = false;
-      agentTalking = false;
-      clearTimeout(silenceTimer);
-      pendingText = "";
       if (recognition) { recognition.abort(); recognition = null; }
       window.speechSynthesis.cancel();
       orb.className = "";
@@ -321,14 +289,12 @@
       setStatus("Click Start to begin talking");
     }
 
-    orb.addEventListener("click", () => { if (!active) beginSession(); else endSession(); });
+    orb.addEventListener("click", () => active ? endSession() : beginSession());
     startBtn.addEventListener("click", beginSession);
     stopBtn.addEventListener("click", endSession);
 
     resetBtn.addEventListener("click", () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "reset" }));
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
     });
 
     function appendUserMessage(text) {
