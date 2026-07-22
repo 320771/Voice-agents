@@ -578,7 +578,9 @@
       if (lastSource === "voice") {
         orb.className = "speaking";
         setVoiceStatus("Agent speaking…");
+        startBargeMonitor(); // listen for user interruption while TTS plays
         speak(msg.fullText, () => {
+          stopBargeMonitor(); // TTS finished naturally — stop barge SR
           orb.className = "";
           if (active) {
             setVoiceStatus("Starting mic…");
@@ -692,75 +694,64 @@
   // ── Barge-in: mic volume monitor while agent is speaking ──────────────────────
   // Uses Web Audio API to watch mic amplitude. When user speaks over the agent,
   // TTS is cancelled and recognition starts immediately.
-  let _bargeAudioCtx = null;
-  let _bargeMicStream = null;
-  let _bargeAnalyser = null;
-  let _bargeRafId = null;
-  let _bargeTriggeredAt = 0; // timestamp when volume first exceeded threshold
+  // ── Barge-in via SpeechRecognition ───────────────────────────────────────────
+  // Run a dedicated SR instance while TTS is playing. The moment the user speaks
+  // (any interim or final result), cancel TTS and start a normal listen() turn.
+  // This avoids Web Audio API / AudioContext suspension issues in Chrome.
+  let _bargeSR = null;
 
-  const BARGE_THRESHOLD = 18;   // RMS out of 0–128; tune up to reduce false triggers
-  const BARGE_HOLD_MS   = 120;  // must sustain above threshold for this long
+  function startBargeMonitor() {
+    if (_bargeSR || !SpeechRecognition) return;
+    const r = new SpeechRecognition();
+    _bargeSR = r;
+    r.lang = "en-US";
+    r.continuous = true;    // keep listening for the whole TTS duration
+    r.interimResults = true;
 
-  async function startBargeMonitor() {
-    if (_bargeAudioCtx) return; // already running
-    try {
-      _bargeMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      _bargeAudioCtx  = new (window.AudioContext || window.webkitAudioContext)();
-      const source    = _bargeAudioCtx.createMediaStreamSource(_bargeMicStream);
-      _bargeAnalyser  = _bargeAudioCtx.createAnalyser();
-      _bargeAnalyser.fftSize = 256;
-      source.connect(_bargeAnalyser);
-      _bargeRafId = requestAnimationFrame(bargeLoop);
-      log("warn", "BARGE", "Barge-in monitor started");
-    } catch (e) {
-      log("warn", "BARGE", "Could not start barge monitor: " + e.message);
-    }
+    r.onresult = (e) => {
+      if (_bargeSR !== r) return; // stale
+      // Any speech while agent is talking = barge-in
+      if (!_currentUtterance) return; // TTS already done, ignore
+      let heard = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        heard += e.results[i][0].transcript;
+      }
+      if (!heard.trim()) return;
+      log("warn", "BARGE", `Barge-in detected: "${heard.trim().slice(0, 40)}"`);
+      stopBargeMonitor();
+      // Cancel TTS cleanly — steal onEnd so it doesn't restart mic
+      clearTimeout(_ttsTimeout);
+      _ttsOnEnd = null;
+      _currentUtterance = null;
+      window.speechSynthesis.cancel();
+      orb.className = "";
+      // Small gap so Chrome doesn't hear TTS bleed as the user's speech
+      setTimeout(() => { if (active) listen(); }, 150);
+    };
+
+    r.onerror = (e) => {
+      if (_bargeSR !== r) return;
+      // "no-speech" is expected (user silent during TTS) — restart monitor
+      if (e.error === "no-speech") { stopBargeMonitor(); if (active && _currentUtterance) startBargeMonitor(); return; }
+      if (e.error !== "aborted") log("warn", "BARGE", "SR error: " + e.error);
+    };
+
+    r.onend = () => {
+      if (_bargeSR !== r) return;
+      _bargeSR = null;
+      // Restart if agent is still speaking (Chrome stops SR after ~60s)
+      if (active && _currentUtterance) startBargeMonitor();
+    };
+
+    try { r.start(); log("warn", "BARGE", "Barge SR started"); }
+    catch (e) { _bargeSR = null; log("warn", "BARGE", "Could not start barge SR: " + e.message); }
   }
 
   function stopBargeMonitor() {
-    if (_bargeRafId) { cancelAnimationFrame(_bargeRafId); _bargeRafId = null; }
-    if (_bargeMicStream) { _bargeMicStream.getTracks().forEach(t => t.stop()); _bargeMicStream = null; }
-    if (_bargeAudioCtx) { try { _bargeAudioCtx.close(); } catch(e) {} _bargeAudioCtx = null; }
-    _bargeAnalyser = null;
-    _bargeTriggeredAt = 0;
-  }
-
-  function bargeLoop() {
-    if (!_bargeAnalyser) return;
-    _bargeRafId = requestAnimationFrame(bargeLoop);
-
-    // Only act during agent-speaking phase
-    if (!_currentUtterance || orb.className !== "speaking") {
-      _bargeTriggeredAt = 0;
-      return;
-    }
-
-    const buf = new Uint8Array(_bargeAnalyser.frequencyBinCount);
-    _bargeAnalyser.getByteTimeDomainData(buf);
-
-    // Compute RMS
-    let sum = 0;
-    for (let i = 0; i < buf.length; i++) {
-      const v = buf[i] - 128;
-      sum += v * v;
-    }
-    const rms = Math.sqrt(sum / buf.length);
-
-    if (rms > BARGE_THRESHOLD) {
-      if (_bargeTriggeredAt === 0) _bargeTriggeredAt = performance.now();
-      if (performance.now() - _bargeTriggeredAt >= BARGE_HOLD_MS) {
-        log("warn", "BARGE", `Barge-in! RMS=${rms.toFixed(1)} — cutting TTS`);
-        _bargeTriggeredAt = 0;
-        // Cancel TTS and steal its onEnd so speak() doesn't restart the mic
-        clearTimeout(_ttsTimeout);
-        _ttsOnEnd = null;
-        _currentUtterance = null;
-        window.speechSynthesis.cancel();
-        orb.className = "";
-        if (active) listen();
-      }
-    } else {
-      _bargeTriggeredAt = 0;
+    if (_bargeSR) {
+      const r = _bargeSR;
+      _bargeSR = null;
+      try { r.abort(); } catch(e) {}
     }
   }
 
@@ -830,14 +821,15 @@
     lastSource = "voice"; // ensure agent speaks on first response
     startBtn.disabled = true;
     stopBtn.disabled = false;
-    startBargeMonitor(); // start mic volume watcher for barge-in
     const greeting = pendingGreeting;
     pendingGreeting = null; // clear immediately — re-start never replays
     if (greeting) {
       // Speak memory greeting first, then start listening
       orb.className = "speaking";
       setVoiceStatus("Agent speaking…");
+      startBargeMonitor();
       speak(greeting, () => {
+        stopBargeMonitor();
         orb.className = "";
         // Small delay so TTS audio fully drains before mic opens
         setTimeout(() => { if (active) listen(); }, 600);
