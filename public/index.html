@@ -525,7 +525,7 @@
     if (msg.type === "thinking") {
       setVoiceStatus("Agent thinking…");
       orb.className = "";
-      appendAssistantBubble();
+      if (lastSource !== "voice") appendAssistantBubble();
       startStreamingContextTurn();
     }
 
@@ -533,9 +533,11 @@
       setVoiceStatus(`Fetching ${msg.tool ? msg.tool.replace("get_", "") : "data"}…`);
     }
 
-    if (msg.type === "token" && currentAssistantEl) {
-      currentAssistantEl.querySelector(".bubble").textContent += msg.text;
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+    if (msg.type === "token") {
+      if (currentAssistantEl) {
+        currentAssistantEl.querySelector(".bubble").textContent += msg.text;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
       appendContextToken(msg.text);
     }
 
@@ -587,7 +589,11 @@
     text = text.trim();
     if (!text || ws.readyState !== WebSocket.OPEN) return;
     lastSource = fromVoice ? "voice" : "chat";
-    appendUserBubble(text);
+    if (!fromVoice) {
+      // Typed chat: show in chat column
+      appendUserBubble(text);
+    }
+    // Both voice and chat appear in session context
     addContextTurn("user", text);
     if (!fromVoice) setSendEnabled(false);
     ws.send(JSON.stringify({ type: "user_speech", text }));
