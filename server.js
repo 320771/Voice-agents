@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
+import { localDetectIntent } from "./intent-library.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -98,58 +99,65 @@ async function get_sports(query = "") {
   } catch { return "Sports data unavailable."; }
 }
 
-// ── Keyword-based tool routing (no tool-use API needed) ──────────────────────
+// ── Claude-based intent detection + tool routing ─────────────────────────────
+
+async function detectIntent(text) {
+  try {
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 100,
+      system: `You are an intent classifier. Reply with ONLY valid JSON, no extra text:
+{"intent":"none","param":""}
+intent options: weather | news | stock | sports | wiki | none
+param: city name for weather, search query for news, ticker symbol for stock, sport/team for sports, topic for wiki, empty string for none`,
+      messages: [{ role: "user", content: text }],
+    });
+    const raw = response.content[0]?.text?.trim() || '{"intent":"none","param":""}';
+    return JSON.parse(raw);
+  } catch (e) {
+    slog("INTENT ERROR:", e.message);
+    return { intent: "none", param: "" };
+  }
+}
 
 async function fetchToolData(text, sendLog) {
-  const t = text.toLowerCase();
+  // 1. Try fast local library (Hindi + English phrases)
+  let local = localDetectIntent(text);
+  slog("LOCAL INTENT:", local ? `${local.intent} (score ${local.score})` : "none");
 
-  if (/weather|temperature|forecast|rain|sunny|cold|hot/.test(t)) {
-    // try to extract city name from the sentence
-    const cityMatch =
-      text.match(/(?:weather|temperature|forecast|rain|sunny|cold|hot)\s+(?:in|at|for)\s+([A-Za-z\s]+?)(?:\?|$|,)/i)?.[1]?.trim() ||
-      text.match(/(?:in|at|for)\s+([A-Za-z\s]+?)(?:\?|$|,)/i)?.[1]?.trim() ||
-      text.match(/(?:in|at|for)\s+([A-Za-z]+)/i)?.[1]?.trim();
-    if (!cityMatch) {
-      // no city found — ask the user instead of defaulting
-      return { tool: "weather", data: "Please specify a city. For example: what is the weather in Mumbai?" };
-    }
-    sendLog("tool_call", "get_weather", { city: cityMatch });
-    return { tool: "weather", data: await get_weather(cityMatch) };
+  // 2. Fall back to Claude for ambiguous/low-confidence cases
+  let intent, param;
+  if (local && local.score >= 2) {
+    ({ intent, param } = local);
+  } else {
+    ({ intent, param } = await detectIntent(text));
   }
+  slog("FINAL INTENT:", intent, "PARAM:", param);
 
-  if (/news|headline|latest|happening|today/.test(t)) {
-    const query = text.match(/news (?:about|on|regarding)\s+(.+?)(?:\?|$)/i)?.[1] || "";
-    sendLog("tool_call", "get_news", { query });
-    return { tool: "news", data: await get_news(query) };
+  if (intent === "weather") {
+    if (!param) return { tool: "weather", data: "Please specify a city. For example: what is the weather in Mumbai?" };
+    sendLog("tool_call", "get_weather", { city: param });
+    return { tool: "weather", data: await get_weather(param) };
   }
-
-  if (/stock|share price|market|nasdaq|nyse|\$[A-Z]{2,5}/.test(t)) {
-    const sym =
-      text.match(/\$([A-Z]{2,5})/)?.[1] ||
-      text.match(/\b([A-Z]{2,5})\b/)?.[1] ||
-      text.match(/(?:stock|shares?|price) (?:of|for)?\s+([A-Za-z]+)/i)?.[1];
-    if (!sym) {
-      return { tool: "stock", data: "Please specify a stock symbol or company name. For example: what is Apple stock price or what is AAPL?" };
-    }
-    sendLog("tool_call", "get_stock", { symbol: sym });
-    return { tool: "stock", data: await get_stock(sym) };
+  if (intent === "news") {
+    sendLog("tool_call", "get_news", { query: param });
+    return { tool: "news", data: await get_news(param) };
   }
-
-  if (/sport|cricket|football|soccer|basketball|nba|ipl|premier league|tennis|score/.test(t)) {
-    const q = text.match(/(?:about|on|in)\s+([a-z\s]+?)(?:\?|$)/i)?.[1] || "";
-    sendLog("tool_call", "get_sports", { query: q });
-    return { tool: "sports", data: await get_sports(q) };
+  if (intent === "stock") {
+    if (!param) return { tool: "stock", data: "Please specify a stock symbol or company. For example: what is Apple stock price?" };
+    sendLog("tool_call", "get_stock", { symbol: param });
+    return { tool: "stock", data: await get_stock(param) };
   }
-
-  if (/who is|what is|tell me about|explain|wikipedia/.test(t)) {
-    const topic = text.replace(/who is|what is|tell me about|explain|wikipedia/gi, "").replace(/[?]/g, "").trim();
-    if (topic) {
-      sendLog("tool_call", "get_wikipedia", { topic });
-      return { tool: "wiki", data: await get_wikipedia(topic) };
-    }
+  if (intent === "sports") {
+    sendLog("tool_call", "get_sports", { query: param });
+    return { tool: "sports", data: await get_sports(param) };
   }
-
-  return null; // no tool needed
+  if (intent === "wiki") {
+    if (!param) return null;
+    sendLog("tool_call", "get_wikipedia", { topic: param });
+    return { tool: "wiki", data: await get_wikipedia(param) };
+  }
+  return null;
 }
 
 // ── WebSocket handler ────────────────────────────────────────────────────────
