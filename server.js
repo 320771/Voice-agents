@@ -10,16 +10,11 @@ const app = express();
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const apiKey = process.env.ANTHROPIC_API_KEY || "";
-const baseURL = process.env.ANTHROPIC_BASE_URL || "https://anthropic.prod.ai-gateway.quantumblack.com/ecf25ea2-1310-4d7b-811e-03f56eb9e8f3";
+const baseURL = process.env.ANTHROPIC_BASE_URL || "https://anthropic.prod.ai-gateway.quantumblack.com/aa49ae17-4478-470b-8538-f2dfafa91d52";
 
-// McKinsey gateway expects Basic auth for client_id:client_secret credentials
-const isBasicAuth = apiKey.includes(":");
 const client = new Anthropic({
   baseURL,
-  apiKey: isBasicAuth ? "placeholder" : apiKey,
-  defaultHeaders: isBasicAuth
-    ? { Authorization: `Basic ${Buffer.from(apiKey).toString("base64")}` }
-    : {},
+  apiKey,
 });
 
 app.use(express.static(path.join(__dirname, "public")));
