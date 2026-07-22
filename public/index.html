@@ -672,10 +672,36 @@
     localStorage.setItem("va_tts_voice", selectedVoice);
   });
 
+  // Edge TTS requires outbound WebSocket to Microsoft — disabled by default
+  // if behind a corporate proxy. Set to true only if confirmed reachable.
+  let _edgeTTSAvailable = localStorage.getItem("va_edge_tts") === "true";
+
+  function speakFallback(text, onEnd) {
+    log("warn", "TTS", "Using Web Speech API fallback");
+    _ttsPlaying = true;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    // Pick a reasonable voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => v.lang.startsWith("en-IN")) ||
+                      voices.find(v => v.lang.startsWith("en-US") && v.localService) ||
+                      null;
+    if (preferred) u.voice = preferred;
+    const done = () => { _ttsPlaying = false; if (onEnd) onEnd(); };
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+    const t = setTimeout(() => { window.speechSynthesis.cancel(); done(); },
+                          Math.max(3000, text.length * 70));
+    u.onend   = () => { clearTimeout(t); done(); };
+    u.onerror = () => { clearTimeout(t); done(); };
+  }
+
   function speak(text, onEnd) {
-    stopTTS(); // cancel any current playback
+    stopTTS();
     _ttsOnEnd = onEnd;
     _ttsPlaying = true;
+
+    if (!_edgeTTSAvailable) { speakFallback(text, onEnd); return; }
 
     const audio = new Audio();
     _ttsAudio = audio;
@@ -690,8 +716,8 @@
       if (cb) cb();
     };
 
-    audio.onended  = () => finish("ended");
-    audio.onerror  = (e) => { log("error", "TTS", "audio error: " + e.message); finish("error"); };
+    audio.onended = () => finish("ended");
+    audio.onerror = (e) => { log("error", "TTS", "audio error"); finish("error"); };
 
     fetch("/api/tts", {
       method: "POST",
@@ -699,15 +725,23 @@
       body: JSON.stringify({ text, voice: selectedVoice }),
     })
       .then(res => {
-        if (!res.ok) throw new Error("TTS HTTP " + res.status);
+        if (!res.ok) throw new Error("HTTP " + res.status);
         return res.blob();
       })
       .then(blob => {
-        if (!_ttsPlaying) return; // cancelled before audio arrived
+        if (!_ttsPlaying) return;
+        if (blob.size < 100) throw new Error("empty audio blob");
         audio.src = URL.createObjectURL(blob);
-        audio.play().catch(e => { log("error", "TTS", "play() failed: " + e.message); finish("play-error"); });
+        return audio.play();
       })
-      .catch(e => { log("error", "TTS", "fetch failed: " + e.message); finish("fetch-error"); });
+      .catch(e => {
+        log("error", "TTS", "Edge TTS failed: " + e.message + " — switching to fallback");
+        _edgeTTSAvailable = false;
+        _ttsPlaying = false;
+        _ttsAudio = null;
+        _ttsOnEnd = null;
+        speakFallback(text, onEnd);
+      });
   }
 
   function stopTTS() {
@@ -718,6 +752,8 @@
       if (_ttsAudio.src) URL.revokeObjectURL(_ttsAudio.src);
       _ttsAudio = null;
     }
+    // Also cancel fallback Web Speech if active
+    if (!_edgeTTSAvailable) window.speechSynthesis.cancel();
   }
 
   // ── Barge-in via SpeechRecognition ───────────────────────────────────────────

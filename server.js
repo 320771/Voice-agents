@@ -35,52 +35,42 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const DEFAULT_VOICE = "en-IN-NeerjaNeural";
 
-// Shared TTS instance — one WebSocket connection reused across requests
-let _tts = null;
-let _ttsVoice = null;
-
-async function getTTS(voice = DEFAULT_VOICE) {
-  if (_tts && _ttsVoice === voice) return _tts;
-  if (_tts) { try { _tts.close(); } catch(e) {} }
-  _tts = new MsEdgeTTS();
-  await _tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-  _ttsVoice = voice;
-  return _tts;
-}
-
 // GET /api/tts/voices — return curated voice list
 app.get("/api/tts/voices", (_req, res) => {
   res.json([
-    { id: "en-IN-NeerjaNeural",   label: "Neerja (English, Indian female)",  lang: "en-IN" },
-    { id: "en-IN-PrabhatNeural",  label: "Prabhat (English, Indian male)",   lang: "en-IN" },
-    { id: "hi-IN-SwaraNeural",    label: "Swara (Hindi female)",             lang: "hi-IN" },
-    { id: "hi-IN-MadhurNeural",   label: "Madhur (Hindi male)",              lang: "hi-IN" },
-    { id: "en-US-AriaNeural",     label: "Aria (English US female)",         lang: "en-US" },
-    { id: "en-US-GuyNeural",      label: "Guy (English US male)",            lang: "en-US" },
-    { id: "en-GB-SoniaNeural",    label: "Sonia (English UK female)",        lang: "en-GB" },
+    { id: "en-IN-NeerjaNeural",   label: "Neerja — English IN ♀",  lang: "en-IN" },
+    { id: "en-IN-PrabhatNeural",  label: "Prabhat — English IN ♂",  lang: "en-IN" },
+    { id: "hi-IN-SwaraNeural",    label: "Swara — Hindi ♀",         lang: "hi-IN" },
+    { id: "hi-IN-MadhurNeural",   label: "Madhur — Hindi ♂",        lang: "hi-IN" },
+    { id: "en-US-AriaNeural",     label: "Aria — English US ♀",     lang: "en-US" },
+    { id: "en-US-GuyNeural",      label: "Guy — English US ♂",      lang: "en-US" },
+    { id: "en-GB-SoniaNeural",    label: "Sonia — English UK ♀",    lang: "en-GB" },
   ]);
 });
 
-// POST /api/tts — synthesise text and stream MP3 back
+// POST /api/tts — synthesise text, return MP3
+// Fresh instance per request — avoids stale WebSocket state
 app.post("/api/tts", async (req, res) => {
   const { text, voice = DEFAULT_VOICE } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: "text required" });
 
+  console.log(`[TTS] voice=${voice} len=${text.length} text="${text.slice(0, 60)}"`);
+  const tts = new MsEdgeTTS();
   try {
-    const tts = await getTTS(voice);
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
     const readable = await tts.toStream(text);
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
     readable.pipe(res);
     readable.on("error", (e) => {
-      console.error("TTS stream error:", e.message);
-      // Reset so next request gets a fresh connection
-      _tts = null; _ttsVoice = null;
+      console.error("[TTS] stream error:", e.message);
+      try { tts.close(); } catch(_) {}
       if (!res.headersSent) res.status(500).json({ error: "TTS stream failed" });
     });
+    res.on("finish", () => { try { tts.close(); } catch(_) {} });
   } catch (e) {
-    console.error("TTS error:", e.message);
-    _tts = null; _ttsVoice = null;
+    console.error("[TTS] error:", e.message);
+    try { tts.close(); } catch(_) {}
     if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
