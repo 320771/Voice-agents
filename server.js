@@ -442,7 +442,12 @@ wss.on("connection", (ws) => {
     const recentSessions = getRecentSessions(name);
     systemPrompt = buildSystemPrompt(name, recentSessions);
     const pendingOffer = getNextCrossSellOffer(name);
-    if (pendingOffer) slog(`CROSSSELL [${name}]: Active offer in prompt — ${pendingOffer}`);
+    if (pendingOffer) {
+      slog(`CROSSSELL [${name}]: Active offer in prompt — ${pendingOffer}`);
+      slog(`CROSSSELL [${name}]: System prompt cross-sell snippet: ${systemPrompt.slice(systemPrompt.indexOf("CROSS-SELL"))?.slice(0, 200) || "(not found)"}`);
+    } else {
+      slog(`CROSSSELL [${name}]: No pending offer for this session`);
+    }
     const greeting = buildGreeting(name, recentSessions);
     if (greeting) {
       ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
@@ -458,6 +463,11 @@ wss.on("connection", (ws) => {
   async function persistMemory() {
     const history = conversationHistory.get(sessionId) || [];
     if (history.length < 2) return;
+
+    // Save a placeholder synchronously FIRST so an immediate reconnect sees this session
+    const endedAt = new Date().toISOString();
+    saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt, summary: "Recent conversation.", topics: [] });
+
     try {
       const transcript = history
         .map(m => `${m.role === "user" ? "User" : "Agent"}: ${m.content.slice(0, 300)}`)
@@ -470,9 +480,11 @@ wss.on("connection", (ws) => {
       });
       const raw = res.content[0]?.text?.trim() || "";
       const [summaryPart, topicsPart] = raw.split(/\nTOPICS:/i);
-      const summary = summaryPart?.trim() || "General conversation.";
+      const summary = summaryPart?.trim() || "Recent conversation.";
       const topics = topicsPart ? topicsPart.split(",").map(t => t.trim()).filter(Boolean) : [];
-      saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt: new Date().toISOString(), summary, topics });
+
+      // Update placeholder with real summary
+      saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt, summary, topics });
       slog(`MEMORY [${userName}]: Session saved — ${summary.slice(0, 80)}`);
 
       // 1. Mark whatever offer was injected THIS session as presented (before queuing new ones)

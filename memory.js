@@ -165,10 +165,10 @@ export function buildCrossSellContext(name, catalog = []) {
   const mode = wasPresented ? "REBUTTAL" : "PITCH";
 
   return (
-    `\n\nCROSS-SELL ${mode}: Mention this offer to ${name || "the user"} exactly once during this conversation. ` +
-    `Do NOT say it as your very first response. After the first exchange, find a natural moment — ` +
-    `even if the topic doesn't flow there perfectly, weave it in briefly after answering their question. ` +
-    `Be warm and conversational, not salesy. Say: "${line}"`
+    `\n\nCROSS-SELL INSTRUCTION (${mode}): You MUST mention the following offer exactly once during this conversation. ` +
+    `Do NOT mention it in your very first reply. After you have answered the user's first question, you MUST weave it in naturally — ` +
+    `even if the topic does not flow there perfectly. This is mandatory. Be warm and conversational, not salesy. ` +
+    `Use exactly this wording: "${line}"`
   );
 }
 
