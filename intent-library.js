@@ -1,9 +1,7 @@
 // Intent phrase library — English + Hindi (transliterated & Devanagari)
-// Each entry: { phrase, intent, extractParam: fn | null }
 
 export const INTENT_LIBRARY = {
   weather: {
-    // English
     en: [
       "weather", "temperature", "forecast", "climate", "rain", "raining", "rainfall",
       "sunny", "sunshine", "cloudy", "clouds", "cold", "hot", "humid", "humidity",
@@ -13,33 +11,36 @@ export const INTENT_LIBRARY = {
       "today's weather", "weather today", "weather tomorrow", "weather this week",
       "heat wave", "feels like", "dew point"
     ],
-    // Hindi transliterated
     hi_translit: [
       "mausam", "barish", "baarish", "garmi", "sardi", "thand", "dhoop",
       "badal", "baadal", "toofan", "baarish hogi", "mausam kaisa hai",
       "aaj ka mausam", "kal ka mausam", "temperature kya hai", "kitni garmi hai",
       "kitni sardi hai", "mausam batao", "weather batao", "baarish hogi kya",
       "chhata chahiye kya", "jacket leni chahiye", "mausam theek hai kya",
-      "aaj baarish hogi", "barish hogi kya aaj", "garam hai", "thanda hai"
+      "aaj baarish hogi", "barish hogi kya aaj", "garam hai", "thanda hai",
+      "ka weather", "ka mausam", "mein weather", "mein mausam",
+      "weather batao", "mausam bata", "barish batao"
     ],
-    // Hindi Devanagari
     hi_dev: [
       "मौसम", "बारिश", "वर्षा", "गर्मी", "सर्दी", "ठंड", "धूप",
       "बादल", "तूफान", "आज का मौसम", "कल का मौसम", "तापमान",
       "मौसम कैसा है", "बारिश होगी"
     ],
-    // Param extraction: try to find city name after location words
     extractParam: (text) => {
-      const t = text.toLowerCase();
       const patterns = [
-        /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein|में)\s+([a-zA-Zऀ-ॿ\s]{2,30?})(?:\?|$|,|\.|please|batao)/i,
-        /(?:in|at|for|ka|mein|में)\s+([a-zA-Zऀ-ॿ]{3,20})\s+(?:weather|mausam|ka|mein)/i,
-        /(?:in|at|for|ka|mein|में)\s+([a-zA-Zऀ-ॿ]{3,20})(?:\?|$|,|\.)/i,
-        /([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\s+(?:weather|mausam)/i,
+        // "Mumbai ka weather" or "Delhi ka mausam" — city comes BEFORE the keyword
+        /([A-Za-z]{3,25})\s+(?:ka|ki|ke|mein)\s+(?:weather|mausam|temperature|barish|baarish)/i,
+        // "weather in Mumbai" or "mausam in Delhi"
+        /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein)\s+([A-Za-z]{3,25})/i,
+        // "in Mumbai" / "at Delhi"
+        /\b(?:in|at|for)\s+([A-Z][a-z]{2,20})\b/,
+        // Capitalized city followed by weather word
+        /([A-Z][a-z]{2,20}(?:\s+[A-Z][a-z]{2,20})?)\s+(?:weather|mausam)/i,
       ];
       for (const p of patterns) {
         const m = text.match(p);
-        if (m?.[1]?.trim()) return m[1].trim();
+        const candidate = m?.[1]?.trim();
+        if (candidate && candidate.length > 2) return candidate;
       }
       return null;
     }
@@ -76,7 +77,7 @@ export const INTENT_LIBRARY = {
     en: [
       "stock", "stocks", "share price", "share", "shares", "market", "equity",
       "nasdaq", "nyse", "sensex", "nifty", "bse", "nse", "dow jones",
-      "stock price", "stock market", "how is", "trading at", "market cap",
+      "stock price", "stock market", "trading at", "market cap",
       "invest", "investment", "portfolio", "bull", "bear", "ipo",
       "apple stock", "google stock", "tesla stock", "amazon stock", "microsoft stock",
       "infosys stock", "tcs stock", "reliance stock", "wipro stock"
@@ -84,19 +85,17 @@ export const INTENT_LIBRARY = {
     hi_translit: [
       "share price", "share kya hai", "share market", "stock kya hai", "sensex kya hai",
       "nifty kya hai", "bazar", "bazaar", "share bazaar", "stock kitna hai",
-      "company ka share", "invest karna chahta", "market upar hai", "market neeche hai",
-      "share price batao", "kaunsa stock lena chahiye"
+      "company ka share", "market upar hai", "market neeche hai",
+      "share price batao", "kaunsa stock"
     ],
     hi_dev: [
       "शेयर", "स्टॉक", "बाज़ार", "शेयर बाज़ार", "सेंसेक्स", "निफ्टी",
       "शेयर कीमत", "निवेश"
     ],
     extractParam: (text) => {
-      // ticker symbol
       const ticker = text.match(/\$([A-Z]{2,5})\b/)?.[1] ||
         text.match(/\b([A-Z]{2,5})\b(?=\s+stock|\s+share)/)?.[1];
       if (ticker) return ticker;
-      // company name
       const company = text.match(/(?:stock|share|price)\s+(?:of|for|ka|ke|ki)?\s*([A-Za-z]+(?:\s+[A-Za-z]+)?)/i)?.[1] ||
         text.match(/([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:stock|share|ka share|ki price)/i)?.[1];
       return company?.trim() || null;
@@ -116,8 +115,7 @@ export const INTENT_LIBRARY = {
     hi_translit: [
       "cricket", "cricket ka score", "match kaisa raha", "india ne jeeta kya",
       "ipl mein kaun jeeta", "football", "khel", "score kya hai", "match result batao",
-      "india cricket", "india ka match", "kohli ne kitne run banaye",
-      "sports khabar", "khel ki khabar", "kaunsa team jeeta"
+      "india cricket", "india ka match", "sports khabar", "khel ki khabar", "kaunsa team jeeta"
     ],
     hi_dev: [
       "क्रिकेट", "फुटबॉल", "खेल", "स्कोर", "मैच", "आईपीएल",
@@ -138,7 +136,7 @@ export const INTENT_LIBRARY = {
       "facts about", "what happened in", "background on"
     ],
     hi_translit: [
-      "kaun hai", "kya hai", "batao", "ke baare mein batao", "itihas",
+      "kaun hai", "kya hai", "ke baare mein batao", "itihas",
       "wikipedia pe", "wikipedia mein", "kya hota hai", "matlab kya hai",
       "kaise kaam karta hai", "kahan hai", "kab hua", "kyon hai",
       "jaankari do", "information do", "explain karo", "bata do"
@@ -148,10 +146,8 @@ export const INTENT_LIBRARY = {
       "विकिपीडिया", "क्या होता है", "मतलब क्या है", "जानकारी दो"
     ],
     extractParam: (text) => {
-      const cleaned = text
-        .replace(/who is|who was|what is|what are|tell me about|explain|wikipedia|history of|biography of|definition of|meaning of|how does|how did|what does|where is|when was|why is|give me information about|i want to know about|describe|facts about|what happened in|background on/gi, "")
-        .replace(/kaun hai|kya hai|batao|ke baare mein batao|itihas|kya hota hai|matlab kya hai|kaise kaam karta hai|kahan hai|kab hua|kyon hai|jaankari do|information do|explain karo|bata do/gi, "")
-        .replace(/[?]/g, "").trim();
+      const stopWords = /who is|who was|what is|what are|tell me about|explain|wikipedia|history of|biography of|definition of|meaning of|how does|how did|what does|where is|when was|why is|give me information about|i want to know about|describe|facts about|what happened in|background on|kaun hai|kya hai|ke baare mein batao|itihas|kya hota hai|matlab kya hai|kaise kaam karta hai|kahan hai|kab hua|kyon hai|jaankari do|information do|explain karo|bata do/gi;
+      const cleaned = text.replace(stopWords, "").replace(/[?]/g, "").trim();
       return cleaned || null;
     }
   }
@@ -168,7 +164,6 @@ function scoreIntent(text, intentData) {
   let score = 0;
   for (const phrase of allPhrases) {
     if (t.includes(phrase.toLowerCase())) {
-      // longer matches score higher
       score += phrase.split(" ").length;
     }
   }
@@ -177,12 +172,10 @@ function scoreIntent(text, intentData) {
 
 // Fast local intent detection — returns { intent, param } or null if unsure
 export function localDetectIntent(text) {
-  const scores = {};
   let best = { intent: "none", score: 0 };
 
   for (const [intentName, intentData] of Object.entries(INTENT_LIBRARY)) {
     const s = scoreIntent(text, intentData);
-    scores[intentName] = s;
     if (s > best.score) best = { intent: intentName, score: s };
   }
 

@@ -127,7 +127,7 @@ async function fetchToolData(text, sendLog) {
 
   // 2. Fall back to Claude for ambiguous/low-confidence cases
   let intent, param;
-  if (local && local.score >= 2) {
+  if (local && local.score >= 1) {
     ({ intent, param } = local);
   } else {
     ({ intent, param } = await detectIntent(text));
