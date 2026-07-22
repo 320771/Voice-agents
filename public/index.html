@@ -727,21 +727,31 @@
     _bargeSR = r;
     r.lang = "en-US";
     r.continuous = true;
-    r.interimResults = true;
+    r.interimResults = false; // finals only — interim results fire on background noise
 
     r.onresult = (e) => {
       if (_bargeSR !== r) return;
-      if (!_ttsPlaying) return; // TTS already done
-      let heard = "";
+      if (!_ttsPlaying) return;
+
+      // Only process final results with sufficient confidence and length
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        heard += e.results[i][0].transcript;
+        const result = e.results[i];
+        if (!result.isFinal) continue;
+        const transcript = result[0].transcript.trim();
+        const confidence = result[0].confidence || 0;
+
+        // Require at least 2 words OR 6 chars, and confidence > 0.5
+        const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+        if (wordCount < 2 && transcript.length < 6) continue;
+        if (confidence > 0 && confidence < 0.5) continue;
+
+        log("warn", "BARGE", `Barge-in: "${transcript.slice(0, 40)}" (conf=${confidence.toFixed(2)})`);
+        stopBargeMonitor();
+        stopTTS();
+        orb.className = "";
+        setTimeout(() => { if (active) listen(); }, 150);
+        return;
       }
-      if (!heard.trim()) return;
-      log("warn", "BARGE", `Barge-in: "${heard.trim().slice(0, 40)}"`);
-      stopBargeMonitor();
-      stopTTS();
-      orb.className = "";
-      setTimeout(() => { if (active) listen(); }, 150);
     };
 
     r.onerror = (e) => {
