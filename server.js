@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
-import { localDetectIntent } from "./intent-library.js";
+import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -99,40 +99,11 @@ async function get_sports(query = "") {
   } catch { return "Sports data unavailable."; }
 }
 
-// ── Claude-based intent detection + tool routing ─────────────────────────────
-
-async function detectIntent(text) {
-  try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 100,
-      system: `You are an intent classifier. Reply with ONLY valid JSON, no extra text:
-{"intent":"none","param":""}
-intent options: weather | news | stock | sports | wiki | none
-param: city name for weather, search query for news, ticker symbol for stock, sport/team for sports, topic for wiki, empty string for none`,
-      messages: [{ role: "user", content: text }],
-    });
-    const raw = response.content[0]?.text?.trim() || '{"intent":"none","param":""}';
-    return JSON.parse(raw);
-  } catch (e) {
-    slog("INTENT ERROR:", e.message);
-    return { intent: "none", param: "" };
-  }
-}
+// ── Vector-based intent detection + tool routing ─────────────────────────────
 
 async function fetchToolData(text, sendLog) {
-  // 1. Try fast local library (Hindi + English phrases)
-  let local = localDetectIntent(text);
-  slog("LOCAL INTENT:", local ? `${local.intent} (score ${local.score})` : "none");
-
-  // 2. Fall back to Claude for ambiguous/low-confidence cases
-  let intent, param;
-  if (local && local.score >= 1) {
-    ({ intent, param } = local);
-  } else {
-    ({ intent, param } = await detectIntent(text));
-  }
-  slog("FINAL INTENT:", intent, "PARAM:", param);
+  const { intent, param, score } = await vectorDetectIntent(text);
+  slog(`INTENT: ${intent} | PARAM: ${param} | SCORE: ${score?.toFixed(3)}`);
 
   if (intent === "weather") {
     if (!param) return { tool: "weather", data: "Please specify a city. For example: what is the weather in Mumbai?" };
@@ -239,4 +210,14 @@ wss.on("connection", (ws) => {
 });
 
 const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => console.log(`Voice agent running at http://localhost:${PORT}`));
+
+// Build embedding vector store, then start HTTP server
+slog("Building intent vector store...");
+buildVectorStore()
+  .then(() => {
+    httpServer.listen(PORT, () => console.log(`Voice agent running at http://localhost:${PORT}`));
+  })
+  .catch(err => {
+    slog("Failed to build vector store:", err.message);
+    process.exit(1);
+  });

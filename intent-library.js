@@ -1,187 +1,292 @@
-// Intent phrase library — English + Hindi (transliterated & Devanagari)
+// Intent vector store using fastembed (all-MiniLM-L6-v2 dense embeddings)
+// Covers English, Hinglish (transliterated), and Devanagari Hindi
 
-export const INTENT_LIBRARY = {
-  weather: {
-    en: [
-      "weather", "temperature", "forecast", "climate", "rain", "raining", "rainfall",
-      "sunny", "sunshine", "cloudy", "clouds", "cold", "hot", "humid", "humidity",
-      "wind", "windy", "storm", "thunderstorm", "snow", "snowing", "hail",
-      "what's it like outside", "how's the weather", "will it rain", "should i carry umbrella",
-      "umbrella today", "jacket today", "is it cold outside", "is it hot outside",
-      "today's weather", "weather today", "weather tomorrow", "weather this week",
-      "heat wave", "feels like", "dew point"
-    ],
-    hi_translit: [
-      "mausam", "barish", "baarish", "garmi", "sardi", "thand", "dhoop",
-      "badal", "baadal", "toofan", "baarish hogi", "mausam kaisa hai",
-      "aaj ka mausam", "kal ka mausam", "temperature kya hai", "kitni garmi hai",
-      "kitni sardi hai", "mausam batao", "weather batao", "baarish hogi kya",
-      "chhata chahiye kya", "jacket leni chahiye", "mausam theek hai kya",
-      "aaj baarish hogi", "barish hogi kya aaj", "garam hai", "thanda hai",
-      "ka weather", "ka mausam", "mein weather", "mein mausam",
-      "weather batao", "mausam bata", "barish batao"
-    ],
-    hi_dev: [
-      "मौसम", "बारिश", "वर्षा", "गर्मी", "सर्दी", "ठंड", "धूप",
-      "बादल", "तूफान", "आज का मौसम", "कल का मौसम", "तापमान",
-      "मौसम कैसा है", "बारिश होगी"
-    ],
-    extractParam: (text) => {
-      const patterns = [
-        // "Mumbai ka weather" or "Delhi ka mausam" — city comes BEFORE the keyword
-        /([A-Za-z]{3,25})\s+(?:ka|ki|ke|mein)\s+(?:weather|mausam|temperature|barish|baarish)/i,
-        // "weather in Mumbai" or "mausam in Delhi"
-        /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein)\s+([A-Za-z]{3,25})/i,
-        // "in Mumbai" / "at Delhi"
-        /\b(?:in|at|for)\s+([A-Z][a-z]{2,20})\b/,
-        // Capitalized city followed by weather word
-        /([A-Z][a-z]{2,20}(?:\s+[A-Z][a-z]{2,20})?)\s+(?:weather|mausam)/i,
-      ];
-      for (const p of patterns) {
-        const m = text.match(p);
-        const candidate = m?.[1]?.trim();
-        if (candidate && candidate.length > 2) return candidate;
-      }
-      return null;
-    }
+import { FlagEmbedding, EmbeddingModel } from "fastembed";
+
+// ── Training corpus ──────────────────────────────────────────────────────────
+// [text, intent, param]  — param is a hint about which entity to extract
+
+const TRAINING_DATA = [
+  // WEATHER
+  ["what is the weather in Mumbai",                  "weather", "Mumbai"],
+  ["weather in Delhi today",                         "weather", "Delhi"],
+  ["Mumbai ka weather batao",                        "weather", "Mumbai"],
+  ["aaj Delhi mein kaisi garmi hai",                 "weather", "Delhi"],
+  ["Bangalore mein barish ho rahi hai kya",          "weather", "Bangalore"],
+  ["London ka mausam kaisa hai",                     "weather", "London"],
+  ["Chennai weather forecast",                       "weather", "Chennai"],
+  ["mausam batao",                                   "weather", ""],
+  ["is it going to rain today",                      "weather", ""],
+  ["should i carry an umbrella today",               "weather", ""],
+  ["how cold is it outside",                         "weather", ""],
+  ["temperature in Hyderabad",                       "weather", "Hyderabad"],
+  ["New York ka temperature kya hai",                "weather", "New York"],
+  ["kya aaj baarish hogi",                           "weather", ""],
+  ["aaj ka mausam kaisa rahega",                     "weather", ""],
+  ["Pune mein mausam kaisa hai",                     "weather", "Pune"],
+  ["will it snow tomorrow in Shimla",                "weather", "Shimla"],
+  ["how hot is it in Dubai",                         "weather", "Dubai"],
+  ["Paris mein abhi kaisa mausam hai",               "weather", "Paris"],
+  ["Tokyo weather today",                            "weather", "Tokyo"],
+  ["Sydney temperature aaj kya hai",                 "weather", "Sydney"],
+  ["is it sunny in Goa",                             "weather", "Goa"],
+  ["chhata lana chahiye kya",                        "weather", ""],
+  ["jacket chahiye kya aaj",                         "weather", ""],
+  ["wind speed in Mumbai",                           "weather", "Mumbai"],
+  ["humidity in Chennai today",                      "weather", "Chennai"],
+  ["mausam theek hai kya",                           "weather", ""],
+  ["barish ka mauka hai kya aaj",                    "weather", ""],
+  ["मौसम कैसा है",                                   "weather", ""],
+  ["मुंबई में बारिश होगी क्या",                      "weather", "Mumbai"],
+  ["आज दिल्ली में ठंड है",                           "weather", "Delhi"],
+  ["kolkata mein aaj barish hogi kya",               "weather", "Kolkata"],
+  ["Jaipur weather batao please",                    "weather", "Jaipur"],
+  ["what is the temperature outside right now",      "weather", ""],
+  ["is it hot or cold in Singapore",                 "weather", "Singapore"],
+
+  // NEWS
+  ["latest news",                                    "news", ""],
+  ["what is the news today",                         "news", ""],
+  ["aaj ki khabar sunao",                            "news", ""],
+  ["koi breaking news hai kya",                      "news", ""],
+  ["duniya mein kya ho raha hai",                    "news", ""],
+  ["top headlines today",                            "news", ""],
+  ["news about India",                               "news", "India"],
+  ["India mein kya ho raha hai latest",              "news", "India"],
+  ["world news abhi kya hai",                        "news", ""],
+  ["kya hua aaj duniya mein",                        "news", ""],
+  ["samachar batao",                                 "news", ""],
+  ["taza khabar kya hai",                            "news", ""],
+  ["today's top stories",                            "news", ""],
+  ["breaking news kya chal raha hai",                "news", ""],
+  ["nayi khabar sunao",                              "news", ""],
+  ["current events update",                          "news", ""],
+  ["what happened today in the world",               "news", ""],
+  ["anything important in news",                     "news", ""],
+  ["headlines kya hain aaj",                         "news", ""],
+  ["खबर बताओ",                                       "news", ""],
+  ["आज की खबर",                                      "news", ""],
+  ["दुनिया में क्या हो रहा है",                      "news", ""],
+  ["latest updates se kya chal raha hai",            "news", ""],
+  ["tell me what is happening in the world",         "news", ""],
+  ["catch me up on the news",                        "news", ""],
+  ["khabar batao",                                   "news", ""],
+  ["khabar sunao",                                   "news", ""],
+  ["khabar kya hai",                                 "news", ""],
+  ["aaj ki taza khabar",                             "news", ""],
+  ["news sunao",                                     "news", ""],
+  ["koi nayi khabar hai",                            "news", ""],
+
+  // STOCK
+  ["what is Apple stock price",                      "stock", "Apple"],
+  ["Apple ka share price kya hai",                   "stock", "Apple"],
+  ["TSLA stock today",                               "stock", "TSLA"],
+  ["Tesla ka price kya chal raha hai",               "stock", "Tesla"],
+  ["Reliance share price batao",                     "stock", "Reliance"],
+  ["Infosys stock market mein kaisa hai",            "stock", "Infosys"],
+  ["sensex aaj kitna hai",                           "stock", "SENSEX"],
+  ["nifty kya chal raha hai",                        "stock", "NIFTY"],
+  ["Google stock price",                             "stock", "Google"],
+  ["Microsoft ka share price",                       "stock", "Microsoft"],
+  ["TCS ka share price batao",                       "stock", "TCS"],
+  ["Wipro stock kya hai",                            "stock", "Wipro"],
+  ["AAPL stock price today",                         "stock", "AAPL"],
+  ["Amazon stock kitna hai",                         "stock", "Amazon"],
+  ["Tata Motors share price kya hai",                "stock", "Tata Motors"],
+  ["market mein kya chal raha hai",                  "stock", ""],
+  ["share bazaar aaj kaisa hai",                     "stock", ""],
+  ["how is the stock market today",                  "stock", ""],
+  ["BSE kya chal raha hai",                          "stock", "BSE"],
+  ["NSE pe kya ho raha hai",                         "stock", ""],
+  ["शेयर बाज़ार कैसा है",                            "stock", ""],
+  ["सेंसेक्स आज कितना है",                           "stock", "SENSEX"],
+  ["HCL Technologies share price",                   "stock", "HCL"],
+  ["Bajaj Finance stock today",                      "stock", "Bajaj Finance"],
+  ["Meta stock kya chal raha hai",                   "stock", "Meta"],
+
+  // SPORTS
+  ["cricket score kya hai",                          "sports", "cricket"],
+  ["India ka cricket match kaisa raha",              "sports", "India cricket"],
+  ["IPL mein aaj kaun jeeta",                        "sports", "IPL"],
+  ["Premier League results today",                   "sports", "Premier League"],
+  ["kya India ne match jeeta",                       "sports", "India cricket"],
+  ["latest football scores",                         "sports", "football"],
+  ["NBA game results today",                         "sports", "NBA"],
+  ["Virat Kohli ne kitne run banaye",                "sports", "cricket"],
+  ["World Cup match result",                         "sports", "World Cup"],
+  ["India vs Australia match",                       "sports", "India vs Australia"],
+  ["Champions League kya hua",                       "sports", "Champions League"],
+  ["F1 race result today",                           "sports", "F1"],
+  ["Wimbledon tennis score",                         "sports", "tennis"],
+  ["aaj ka cricket match score",                     "sports", "cricket"],
+  ["sports news kya hai aaj",                        "sports", ""],
+  ["khel ki khabar batao",                           "sports", ""],
+  ["India vs Pakistan match kya hua",                "sports", "India vs Pakistan"],
+  ["क्रिकेट स्कोर क्या है",                         "sports", "cricket"],
+  ["आईपीएल में कौन जीता",                            "sports", "IPL"],
+  ["Rohit Sharma ka score batao",                    "sports", "cricket"],
+  ["football match aaj kaisa tha",                   "sports", "football"],
+  ["badminton results today",                        "sports", "badminton"],
+  ["Olympics mein India ne kya jeeta",               "sports", "Olympics India"],
+
+  // WIKI
+  ["who is Elon Musk",                               "wiki", "Elon Musk"],
+  ["tell me about Mahatma Gandhi",                   "wiki", "Mahatma Gandhi"],
+  ["what is quantum computing",                      "wiki", "quantum computing"],
+  ["black hole kya hota hai",                        "wiki", "black hole"],
+  ["explain machine learning",                       "wiki", "machine learning"],
+  ["Albert Einstein kaun the",                       "wiki", "Albert Einstein"],
+  ["Taj Mahal ka itihas batao",                      "wiki", "Taj Mahal"],
+  ["French Revolution ke baare mein batao",          "wiki", "French Revolution"],
+  ["what is artificial intelligence",                "wiki", "artificial intelligence"],
+  ["who was Jawaharlal Nehru",                       "wiki", "Jawaharlal Nehru"],
+  ["climate change kya hai",                         "wiki", "climate change"],
+  ["how does the internet work",                     "wiki", "internet"],
+  ["Bitcoin kya hota hai",                           "wiki", "Bitcoin"],
+  ["Sachin Tendulkar ke baare mein batao",           "wiki", "Sachin Tendulkar"],
+  ["Mount Everest ki height kitni hai",              "wiki", "Mount Everest"],
+  ["what is DNA",                                    "wiki", "DNA"],
+  ["Amazon river ke baare mein batao",               "wiki", "Amazon river"],
+  ["history of World War 2",                         "wiki", "World War 2"],
+  ["who invented the telephone",                     "wiki", "telephone"],
+  ["कौन है एलन मस्क",                                "wiki", "Elon Musk"],
+  ["महात्मा गांधी के बारे में बताओ",                 "wiki", "Mahatma Gandhi"],
+  ["Solar System ke baare mein batao",               "wiki", "Solar System"],
+  ["photosynthesis kya hoti hai",                    "wiki", "photosynthesis"],
+  ["Indian Constitution kab bana",                   "wiki", "Indian Constitution"],
+  ["who is the president of USA",                    "wiki", "president of USA"],
+  ["gravity kya hoti hai",                           "wiki", "gravity"],
+  ["tell me about the Great Wall of China",          "wiki", "Great Wall of China"],
+
+  // NONE
+  ["hello",                                          "none", ""],
+  ["hi there",                                       "none", ""],
+  ["how are you",                                    "none", ""],
+  ["kya haal hai",                                   "none", ""],
+  ["what is 5 plus 3",                               "none", ""],
+  ["tell me a joke",                                 "none", ""],
+  ["mujhe ek joke sunao",                            "none", ""],
+  ["thanks",                                         "none", ""],
+  ["shukriya",                                       "none", ""],
+  ["good morning",                                   "none", ""],
+  ["can you help me",                                "none", ""],
+  ["who are you",                                    "none", ""],
+  ["tum kaun ho",                                    "none", ""],
+  ["what can you do",                                "none", ""],
+  ["ok",                                             "none", ""],
+  ["got it",                                         "none", ""],
+  ["what day is today",                              "none", ""],
+  ["aaj kaunsa din hai",                             "none", ""],
+  ["set a reminder",                                 "none", ""],
+  ["play some music",                                "none", ""],
+];
+
+// ── Param extractors ──────────────────────────────────────────────────────────
+
+const PARAM_EXTRACTORS = {
+  weather: (text) => {
+    const p = [
+      /([A-Za-z]{3,25})\s+(?:ka|ki|ke|mein)\s+(?:weather|mausam|temperature|barish|baarish)/i,
+      /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein)\s+([A-Za-z]{3,25})/i,
+      /\b(?:in|at|for)\s+([A-Z][a-z]{2,20})\b/,
+      /([A-Z][a-z]{2,20}(?:\s+[A-Z][a-z]{2,20})?)\s+(?:weather|mausam)/i,
+    ];
+    for (const rx of p) { const m = text.match(rx); if (m?.[1]?.trim().length > 2) return m[1].trim(); }
+    return "";
   },
-
-  news: {
-    en: [
-      "news", "headline", "headlines", "latest news", "breaking news", "top stories",
-      "what's happening", "what is happening", "current events", "today's news",
-      "news update", "news about", "tell me news", "any news", "whats in the news",
-      "world news", "local news", "recent news", "latest updates", "what happened today",
-      "anything new", "catch me up"
-    ],
-    hi_translit: [
-      "khabar", "khabaren", "samachar", "taza khabar", "aaj ki khabar", "news batao",
-      "kya hua", "kya ho raha hai", "desh mein kya ho raha hai", "aaj kya hua",
-      "nayi khabar", "breaking news kya hai", "khabar sunao", "samachar batao",
-      "headline kya hai", "duniya mein kya ho raha hai"
-    ],
-    hi_dev: [
-      "खबर", "खबरें", "समाचार", "ताज़ा खबर", "आज की खबर", "क्या हुआ",
-      "क्या हो रहा है", "नई खबर", "हेडलाइन"
-    ],
-    extractParam: (text) => {
-      const m =
-        text.match(/news (?:about|on|regarding|ke baare mein)\s+(.+?)(?:\?|$)/i)?.[1] ||
-        text.match(/khabar (?:about|on|ke baare mein)\s+(.+?)(?:\?|$)/i)?.[1] ||
-        "";
-      return m.trim();
-    }
+  news: (text) => {
+    return text.match(/news (?:about|on|regarding)\s+(.+?)(?:\?|$)/i)?.[1]?.trim() ||
+           text.match(/khabar (?:ke baare mein|about)\s+(.+?)(?:\?|$)/i)?.[1]?.trim() || "";
   },
-
-  stock: {
-    en: [
-      "stock", "stocks", "share price", "share", "shares", "market", "equity",
-      "nasdaq", "nyse", "sensex", "nifty", "bse", "nse", "dow jones",
-      "stock price", "stock market", "trading at", "market cap",
-      "invest", "investment", "portfolio", "bull", "bear", "ipo",
-      "apple stock", "google stock", "tesla stock", "amazon stock", "microsoft stock",
-      "infosys stock", "tcs stock", "reliance stock", "wipro stock"
-    ],
-    hi_translit: [
-      "share price", "share kya hai", "share market", "stock kya hai", "sensex kya hai",
-      "nifty kya hai", "bazar", "bazaar", "share bazaar", "stock kitna hai",
-      "company ka share", "market upar hai", "market neeche hai",
-      "share price batao", "kaunsa stock"
-    ],
-    hi_dev: [
-      "शेयर", "स्टॉक", "बाज़ार", "शेयर बाज़ार", "सेंसेक्स", "निफ्टी",
-      "शेयर कीमत", "निवेश"
-    ],
-    extractParam: (text) => {
-      const ticker = text.match(/\$([A-Z]{2,5})\b/)?.[1] ||
-        text.match(/\b([A-Z]{2,5})\b(?=\s+stock|\s+share)/)?.[1];
-      if (ticker) return ticker;
-      const company = text.match(/(?:stock|share|price)\s+(?:of|for|ka|ke|ki)?\s*([A-Za-z]+(?:\s+[A-Za-z]+)?)/i)?.[1] ||
-        text.match(/([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:stock|share|ka share|ki price)/i)?.[1];
-      return company?.trim() || null;
-    }
+  stock: (text) => {
+    // "$TSLA" ticker
+    const ticker = text.match(/\$([A-Z]{2,5})\b/)?.[1];
+    if (ticker) return ticker;
+    // "Apple ka share" — entity comes BEFORE "ka share/stock"
+    const before = text.match(/([A-Za-z][A-Za-z\s]{1,20}?)\s+(?:ka|ki|ke)\s+(?:share|stock|price)/i)?.[1]?.trim();
+    if (before) return before;
+    // "stock of Apple" / "share price of TCS"
+    const after = text.match(/(?:stock|share|price)\s+(?:of|for|ka|ke|ki)?\s*([A-Za-z][A-Za-z\s]{1,20}?)(?:\s+(?:kya|hai|kitna|batao|\?|$))/i)?.[1]?.trim();
+    if (after) return after;
+    // ALL-CAPS ticker: AAPL, TCS, TSLA
+    const caps = text.match(/\b([A-Z]{2,6})\b/)?.[1];
+    if (caps && !["KYA","HAI","KA","KE","KI","AUR","MEI","PE"].includes(caps)) return caps;
+    return "";
   },
-
-  sports: {
-    en: [
-      "sport", "sports", "cricket", "football", "soccer", "basketball", "tennis",
-      "baseball", "hockey", "rugby", "golf", "badminton", "volleyball",
-      "ipl", "nba", "nfl", "premier league", "la liga", "bundesliga", "serie a",
-      "world cup", "champions league", "score", "scorecard", "match result",
-      "who won", "did india win", "game result", "live score", "match today",
-      "tournament", "championship", "league table", "standings", "fixtures",
-      "player stats", "team score", "latest score", "sports news"
-    ],
-    hi_translit: [
-      "cricket", "cricket ka score", "match kaisa raha", "india ne jeeta kya",
-      "ipl mein kaun jeeta", "football", "khel", "score kya hai", "match result batao",
-      "india cricket", "india ka match", "sports khabar", "khel ki khabar", "kaunsa team jeeta"
-    ],
-    hi_dev: [
-      "क्रिकेट", "फुटबॉल", "खेल", "स्कोर", "मैच", "आईपीएल",
-      "विश्व कप", "भारत ने जीता", "मैच का नतीजा"
-    ],
-    extractParam: (text) => {
-      const q = text.match(/(?:about|on|in|ka|ke|ki|mein)\s+([a-zA-Z\s]+?)(?:\?|$)/i)?.[1] || "";
-      return q.trim();
-    }
+  sports: (text) => {
+    // "India vs Pakistan" style
+    const vs = text.match(/([A-Za-z\s]+?)\s+vs\s+([A-Za-z\s]+?)(?:\?|$|match|mein)/i);
+    if (vs) return `${vs[1].trim()} vs ${vs[2].trim()}`;
+    // Named sport/team/league
+    const named = text.match(/\b(cricket|football|soccer|basketball|tennis|IPL|NBA|NFL|Premier League|Champions League|World Cup|F1|badminton|hockey|rugby|Olympics)\b/i);
+    if (named) return named[1];
+    return "";
   },
-
-  wiki: {
-    en: [
-      "who is", "who was", "what is", "what are", "tell me about", "explain",
-      "wikipedia", "history of", "biography of", "definition of", "meaning of",
-      "how does", "how did", "what does", "where is", "when was", "why is",
-      "give me information about", "i want to know about", "describe",
-      "facts about", "what happened in", "background on"
-    ],
-    hi_translit: [
-      "kaun hai", "kya hai", "ke baare mein batao", "itihas",
-      "wikipedia pe", "wikipedia mein", "kya hota hai", "matlab kya hai",
-      "kaise kaam karta hai", "kahan hai", "kab hua", "kyon hai",
-      "jaankari do", "information do", "explain karo", "bata do"
-    ],
-    hi_dev: [
-      "कौन है", "क्या है", "बताओ", "के बारे में", "इतिहास",
-      "विकिपीडिया", "क्या होता है", "मतलब क्या है", "जानकारी दो"
-    ],
-    extractParam: (text) => {
-      const stopWords = /who is|who was|what is|what are|tell me about|explain|wikipedia|history of|biography of|definition of|meaning of|how does|how did|what does|where is|when was|why is|give me information about|i want to know about|describe|facts about|what happened in|background on|kaun hai|kya hai|ke baare mein batao|itihas|kya hota hai|matlab kya hai|kaise kaam karta hai|kahan hai|kab hua|kyon hai|jaankari do|information do|explain karo|bata do/gi;
-      const cleaned = text.replace(stopWords, "").replace(/[?]/g, "").trim();
-      return cleaned || null;
-    }
-  }
+  wiki: (text) => {
+    const stopPhrases = /who is|who was|what is|what are|tell me about|explain|wikipedia|history of|biography of|definition of|meaning of|how does|how did|what does|where is|when was|why is|give me information about|i want to know about|describe|facts about|what happened in|background on|kaun hai|kya hai|ke baare mein batao|ke baare mein|itihas|kya hota hai|matlab kya hai|kaise kaam karta hai|kahan hai|kab hua|kyon hai|jaankari do|information do|explain karo|bata do|batao|kaun the/gi;
+    return text.replace(stopPhrases, "").replace(/[?]/g, "").trim() || "";
+  },
 };
 
-// Score text against an intent's phrase library
-function scoreIntent(text, intentData) {
-  const t = text.toLowerCase();
-  const allPhrases = [
-    ...intentData.en,
-    ...intentData.hi_translit,
-    ...intentData.hi_dev,
-  ];
-  let score = 0;
-  for (const phrase of allPhrases) {
-    if (t.includes(phrase.toLowerCase())) {
-      score += phrase.split(" ").length;
-    }
+// ── Vector Store ──────────────────────────────────────────────────────────────
+
+let embedder = null;
+let vectorStore = null; // [{ vec: Float32Array, intent, param }]
+
+function cosineSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na  += a[i] * a[i];
+    nb  += b[i] * b[i];
   }
-  return score;
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 
-// Fast local intent detection — returns { intent, param } or null if unsure
-export function localDetectIntent(text) {
-  let best = { intent: "none", score: 0 };
+// Call once at server startup — builds the in-memory vector store
+export async function buildVectorStore() {
+  embedder = await FlagEmbedding.init({
+    model: EmbeddingModel.AllMiniLML6V2,
+  });
 
-  for (const [intentName, intentData] of Object.entries(INTENT_LIBRARY)) {
-    const s = scoreIntent(text, intentData);
-    if (s > best.score) best = { intent: intentName, score: s };
+  const texts = TRAINING_DATA.map(([text]) => text);
+  const embeddings = [];
+  for await (const batch of embedder.embed(texts, 32)) {
+    for (const vec of batch) embeddings.push(Float32Array.from(vec));
   }
 
-  if (best.score === 0) return null; // no match — let Claude decide
+  vectorStore = TRAINING_DATA.map(([text, intent, param], i) => ({
+    vec: embeddings[i],
+    intent,
+    param,
+    text,
+  }));
 
-  const intentData = INTENT_LIBRARY[best.intent];
-  const param = intentData.extractParam ? intentData.extractParam(text) : null;
-  return { intent: best.intent, param: param || "", score: best.score };
+  console.log(`[intent] Vector store built: ${vectorStore.length} examples, dim=${vectorStore[0].vec.length}`);
+}
+
+// Query the vector store — returns { intent, param, score }
+export async function vectorDetectIntent(text) {
+  if (!vectorStore || !embedder) throw new Error("Vector store not initialised");
+
+  const qVecs = [];
+  for await (const batch of embedder.embed([text], 1)) {
+    for (const v of batch) qVecs.push(Float32Array.from(v));
+  }
+  const qVec = qVecs[0];
+
+  let best = { score: -1, intent: "none", param: "" };
+  for (const entry of vectorStore) {
+    const score = cosineSim(qVec, entry.vec);
+    if (score > best.score) best = { score, intent: entry.intent, param: entry.param };
+  }
+
+  // Low-confidence fallback
+  if (best.score < 0.35) return { intent: "none", param: "", score: best.score };
+
+  // Re-extract param from the live user text (training param is just a hint)
+  const extractor = PARAM_EXTRACTORS[best.intent];
+  const param = extractor ? (extractor(text) || best.param) : best.param;
+
+  return { intent: best.intent, param, score: best.score };
 }
