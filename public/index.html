@@ -177,14 +177,16 @@
     const ws = new WebSocket(`ws://${location.host}`);
     let recognition = null;
     let currentAssistantEl = null;
-    let active = false;   // true = conversation session is running
-    let agentTalking = false; // true = agent is currently speaking
+    let active = false;
+    let agentTalking = false;
+    let silenceTimer = null;
+    let pendingText = "";
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
 
       if (msg.type === "thinking") {
-        setStatus("Thinking…");
+        setStatus("Agent thinking…");
         orb.className = "";
         appendAssistantBubble();
       }
@@ -198,21 +200,23 @@
 
       if (msg.type === "done") {
         agentTalking = true;
-        setStatus("Agent speaking… (talking now restarts mic after)");
         orb.className = "speaking";
+        setStatus("Agent speaking… (you can interrupt anytime)");
         speak(msg.fullText, () => {
           agentTalking = false;
           currentAssistantEl = null;
-          if (active) startListening(); // auto-restart mic after agent finishes
+          if (active) {
+            orb.className = "listening";
+            setStatus("Listening…");
+          }
         });
         currentAssistantEl = null;
       }
 
       if (msg.type === "error") {
-        setStatus(msg.message);
-        orb.className = "";
         agentTalking = false;
-        if (active) startListening();
+        orb.className = active ? "listening" : "";
+        setStatus(active ? "Listening…" : msg.message);
       }
 
       if (msg.type === "reset_ok") {
@@ -230,72 +234,90 @@
       window.speechSynthesis.speak(utter);
     }
 
-    function startListening() {
-      if (!SpeechRecognition || !active) return;
-      if (recognition) { recognition.abort(); recognition = null; }
+    function sendPending() {
+      const text = pendingText.trim();
+      pendingText = "";
+      if (!text) return;
+      // interrupt agent if talking
+      if (agentTalking) {
+        window.speechSynthesis.cancel();
+        agentTalking = false;
+      }
+      appendUserMessage(text);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "user_speech", text }));
+      }
+      orb.className = "";
+      setStatus("Agent thinking…");
+    }
+
+    function beginSession() {
+      if (!SpeechRecognition) {
+        setStatus("Speech recognition not supported. Use Chrome.");
+        return;
+      }
+      active = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
 
       recognition = new SpeechRecognition();
       recognition.lang = "en-US";
-      recognition.interimResults = false;
+      recognition.continuous = true;
+      recognition.interimResults = true;
       recognition.maxAlternatives = 1;
-      recognition.continuous = false;
 
       recognition.onstart = () => {
         orb.className = "listening";
-        setStatus("Listening… speak now");
+        setStatus("Listening…");
       };
 
       recognition.onresult = (e) => {
-        const text = e.results[0][0].transcript;
-        appendUserMessage(text);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "user_speech", text }));
+        // collect all results into pendingText
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) {
+            pendingText += t + " ";
+          } else {
+            interim = t;
+          }
         }
-        orb.className = "";
-        setStatus("Thinking…");
+
+        // show live interim text in status
+        if (interim) setStatus("You: " + interim);
+
+        // debounce: send after 1.2s of silence
+        clearTimeout(silenceTimer);
+        if (pendingText.trim()) {
+          silenceTimer = setTimeout(sendPending, 1200);
+        }
       };
 
       recognition.onerror = (e) => {
-        if (e.error === "no-speech" && active) {
-          startListening(); // restart on silence
-          return;
-        }
-        if (e.error !== "aborted") setStatus(`Error: ${e.error}`);
-        orb.className = "";
+        if (e.error === "no-speech") return; // ignore silence gaps
+        if (e.error !== "aborted") setStatus("Mic error: " + e.error);
       };
 
       recognition.onend = () => {
-        // only restart if still active and agent is not currently talking
-        if (active && !agentTalking && orb.className !== "speaking") {
-          startListening();
+        // continuous mode: auto-restart if still active
+        if (active) {
+          try { recognition.start(); } catch (_) {}
         }
       };
 
       recognition.start();
     }
 
-    function beginSession() {
-      active = true;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      startBtn.style.background = "#374151";
-      stopBtn.style.background = "#7c3aed";
-      stopBtn.style.borderColor = "#7c3aed";
-      stopBtn.style.color = "#fff";
-      startListening();
-    }
-
     function endSession() {
       active = false;
       agentTalking = false;
+      clearTimeout(silenceTimer);
+      pendingText = "";
       if (recognition) { recognition.abort(); recognition = null; }
       window.speechSynthesis.cancel();
       orb.className = "";
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      stopBtn.style.background = "";
-      stopBtn.style.borderColor = "";
-      stopBtn.style.color = "";
       setStatus("Click Start to begin talking");
     }
 
