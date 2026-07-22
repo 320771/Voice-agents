@@ -56,7 +56,7 @@ app.post("/webhook", async (req, res) => {
       // Use a lightweight single-turn call (no persistent history for WA)
       const waHistory = [{ role: "user", content: userContent }];
       const response = await client.messages.create({
-        model: "claude-haiku-4-5",
+        model: "claude-sonnet-4-6",
         max_tokens: 512,
         system: "You are a helpful voice assistant replying over WhatsApp. Keep replies short and conversational — no markdown, no bullet points. When tool data is in [Tool data - ...] brackets, use it to answer accurately.",
         messages: waHistory,
@@ -463,7 +463,7 @@ wss.on("connection", (ws) => {
         .map(m => `${m.role === "user" ? "User" : "Agent"}: ${m.content.slice(0, 300)}`)
         .join("\n");
       const res = await client.messages.create({
-        model: "claude-haiku-4-5",
+        model: "claude-sonnet-4-6",
         max_tokens: 200,
         system: 'Summarise this conversation in 1-2 sentences. Then on a new line write "TOPICS:" followed by up to 5 comma-separated key topics. Be concise.',
         messages: [{ role: "user", content: transcript }],
@@ -543,7 +543,7 @@ wss.on("connection", (ws) => {
 
         // 3. Stream Claude's response
         const stream = await client.messages.stream({
-          model: "claude-haiku-4-5",
+          model: "claude-sonnet-4-6",
           max_tokens: 1024,
           system: systemPrompt,
           messages: history,
