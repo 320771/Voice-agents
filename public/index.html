@@ -597,7 +597,7 @@
       // Typed chat: show in chat column
       appendUserBubble(text);
       // Pause mic while waiting for chat reply (will restart in done handler)
-      if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
+      stopMic();
       setSendEnabled(false);
     }
     addContextTurn("user", text);
@@ -659,6 +659,15 @@
   // ── Voice ──────────────────────────────────────────────────────────────────────
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+  function stopMic() {
+    if (recognition) {
+      const r = recognition;
+      recognition = null;       // null BEFORE abort so stale onend doesn't restart
+      orb.className = "";       // clear state so onend guard fails
+      try { r.abort(); } catch(e) {}
+    }
+  }
+
   function listen() {
     if (!active) return;
     if (!SpeechRecognition) {
@@ -666,18 +675,19 @@
       setVoiceStatus("Use Chrome");
       return;
     }
-    // Always abort any existing instance before creating a new one
-    if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
-    recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.continuous = false;
-    recognition.interimResults = true;
+    stopMic(); // kill any existing instance cleanly
+
+    const r = new SpeechRecognition();
+    recognition = r;
+    r.lang = "en-US";
+    r.continuous = false;
+    r.interimResults = true;
 
     orb.className = "listening";
     setVoiceStatus("Listening… speak now");
-    log("warn", "MIC", "Mic opened — speak now");
+    log("warn", "MIC", "Mic opened");
 
-    recognition.onresult = (e) => {
+    r.onresult = (e) => {
       let interim = "", final = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) final += e.results[i][0].transcript;
@@ -687,22 +697,24 @@
       if (final) {
         orb.className = "";
         setVoiceStatus("Sending…");
-        sendMessage(final.trim(), true); // fromVoice=true, don't disable chat
+        sendMessage(final.trim(), true);
       }
     };
 
-    recognition.onerror = (e) => {
+    r.onerror = (e) => {
+      if (recognition !== r) return; // stale instance — ignore
       if (e.error === "no-speech" && active) { listen(); return; }
       if (e.error === "not-allowed") log("error", "MIC", "Microphone permission denied");
       else if (e.error !== "aborted") log("warn", "MIC", e.error);
       if (e.error !== "aborted") setVoiceStatus("Mic error: " + e.error);
     };
 
-    recognition.onend = () => {
+    r.onend = () => {
+      if (recognition !== r) return; // stale instance — ignore
       if (active && orb.className === "listening") listen();
     };
 
-    recognition.start();
+    r.start();
   }
 
   function beginSession() {
@@ -710,13 +722,14 @@
     lastSource = "voice"; // ensure agent speaks on first response
     startBtn.disabled = true;
     stopBtn.disabled = false;
-    if (pendingGreeting) {
+    const greeting = pendingGreeting;
+    pendingGreeting = null; // clear immediately — re-start never replays
+    if (greeting) {
       // Speak memory greeting first, then start listening
       orb.className = "speaking";
       setVoiceStatus("Agent speaking…");
-      speak(pendingGreeting, () => {
+      speak(greeting, () => {
         orb.className = "";
-        pendingGreeting = null;
         // Small delay so TTS audio fully drains before mic opens
         setTimeout(() => { if (active) listen(); }, 600);
       });
@@ -727,7 +740,7 @@
 
   function endSession() {
     active = false;
-    if (recognition) { recognition.abort(); recognition = null; }
+    stopMic();
     window.speechSynthesis.cancel();
     orb.className = "";
     startBtn.disabled = false;
