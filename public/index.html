@@ -295,14 +295,19 @@
     if (msg.type === "done") {
       log("success", "AGENT", `Reply ready (${msg.fullText.length} chars)`);
       currentAssistantEl = null;
-      setSendEnabled(true);
+      setSendEnabled(true); // always re-enable chat
       if (active) {
+        // voice mode: speak the reply then restart mic
         orb.className = "speaking";
         setVoiceStatus("Agent speaking…");
         speak(msg.fullText, () => {
-          if (active) { log("speech", "MIC", "Agent done — restarting mic"); listen(); }
+          if (active) {
+            log("speech", "MIC", "Agent done speaking — restarting mic");
+            listen();
+          }
         });
       } else {
+        // chat-only mode: just reset orb
         orb.className = "";
         setVoiceStatus("Click Start to begin talking");
       }
@@ -328,12 +333,12 @@
   };
 
   // ── Send a message (shared by voice + chat) ──────────────────────────────────
-  function sendMessage(text) {
+  function sendMessage(text, fromVoice = false) {
     text = text.trim();
     if (!text || ws.readyState !== WebSocket.OPEN) return;
     appendUserBubble(text);
-    setSendEnabled(false);
-    log("speech", "SEND", `"${text}"`);
+    if (!fromVoice) setSendEnabled(false); // only disable chat input for typed messages
+    log("speech", "SEND", `"${text}" [${fromVoice ? "voice" : "chat"}]`);
     ws.send(JSON.stringify({ type: "user_speech", text }));
   }
 
@@ -392,7 +397,7 @@
       if (final) {
         orb.className = "";
         setVoiceStatus("Sending…");
-        sendMessage(final.trim());
+        sendMessage(final.trim(), true); // fromVoice=true, don't disable chat
       }
     };
 
