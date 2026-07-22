@@ -7,7 +7,7 @@ import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
-import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting } from "./memory.js";
+import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers } from "./memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -139,29 +139,38 @@ wss.on("connection", (ws) => {
   const sessionStartedAt = new Date().toISOString();
   conversationHistory.set(sessionId, []);
 
-  // Load episodic memory and greet user
-  const recentSessions = getRecentSessions();
-  const memoryContext = buildMemoryContext(recentSessions);
-  const greeting = buildGreeting(recentSessions);
-  if (greeting) {
-    ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
-    slog("MEMORY: Sent greeting from", recentSessions.length, "past session(s)");
+  let userName = "anonymous";
+  let systemPrompt = buildSystemPrompt(userName, []);
+
+  // Send known users list so the UI can show autocomplete suggestions
+  ws.send(JSON.stringify({ type: "known_users", users: listUsers() }));
+
+  function buildSystemPrompt(name, sessions) {
+    return "You are a helpful, friendly voice assistant. " +
+      "When tool data is provided in [Tool data - ...] brackets, use it to answer accurately and concisely. " +
+      "Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud." +
+      buildMemoryContext(name, sessions);
   }
 
-  const SYSTEM_PROMPT =
-    "You are a helpful, friendly voice assistant. " +
-    "When tool data is provided in [Tool data - ...] brackets, use it to answer accurately and concisely. " +
-    "Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud." +
-    memoryContext;
+  function loadUserMemory(name) {
+    userName = name;
+    const recentSessions = getRecentSessions(name);
+    systemPrompt = buildSystemPrompt(name, recentSessions);
+    const greeting = buildGreeting(name, recentSessions);
+    if (greeting) {
+      ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
+      slog(`MEMORY [${name}]: Sent greeting from ${recentSessions.length} past session(s)`);
+    }
+  }
 
   const sendLog = (type, tool, input) => {
     ws.send(JSON.stringify({ type, tool, input }));
   };
 
-  // Summarise the session and persist to episodic memory
+  // Summarise the session and persist to episodic memory under userName
   async function persistMemory() {
     const history = conversationHistory.get(sessionId) || [];
-    if (history.length < 2) return; // nothing worth saving
+    if (history.length < 2) return;
     try {
       const transcript = history
         .map(m => `${m.role === "user" ? "User" : "Agent"}: ${m.content.slice(0, 300)}`)
@@ -176,8 +185,8 @@ wss.on("connection", (ws) => {
       const [summaryPart, topicsPart] = raw.split(/\nTOPICS:/i);
       const summary = summaryPart?.trim() || "General conversation.";
       const topics = topicsPart ? topicsPart.split(",").map(t => t.trim()).filter(Boolean) : [];
-      saveSession({ id: sessionId, startedAt: sessionStartedAt, endedAt: new Date().toISOString(), summary, topics });
-      slog("MEMORY: Session saved —", summary.slice(0, 80));
+      saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt: new Date().toISOString(), summary, topics });
+      slog(`MEMORY [${userName}]: Session saved — ${summary.slice(0, 80)}`);
     } catch (e) {
       slog("MEMORY ERROR:", e.message);
     }
@@ -186,6 +195,17 @@ wss.on("connection", (ws) => {
   ws.on("message", async (data) => {
     let payload;
     try { payload = JSON.parse(data); } catch { return; }
+
+    // User identified themselves
+    if (payload.type === "set_user") {
+      const name = payload.name?.trim();
+      if (name) {
+        conversationHistory.set(sessionId, []); // fresh history for new user
+        loadUserMemory(name);
+        slog(`USER SET: ${name}`);
+      }
+      return;
+    }
 
     if (payload.type === "user_speech") {
       const userText = payload.text?.trim();
@@ -212,7 +232,7 @@ wss.on("connection", (ws) => {
         const stream = await client.messages.stream({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
-          system: SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: history,
         });
 

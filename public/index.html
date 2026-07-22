@@ -19,16 +19,76 @@
 
     /* ── header ── */
     header {
-      padding: 12px 24px;
+      padding: 10px 20px;
       border-bottom: 1px solid #1e1e2e;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       flex-shrink: 0;
     }
-    header h1 { font-size: 1rem; font-weight: 600; color: #a78bfa; }
+    header h1 { font-size: 1rem; font-weight: 600; color: #a78bfa; margin-right: 4px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; transition: background 0.3s; }
     .dot.alive { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+
+    /* ── name field ── */
+    .name-area {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .name-area label {
+      font-size: 0.7rem;
+      color: #4b5563;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    #name-input {
+      background: #1a1a24;
+      border: 1px solid #2d2d3d;
+      border-radius: 8px;
+      padding: 5px 10px;
+      color: #e8e8f0;
+      font-size: 0.82rem;
+      width: 160px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #name-input:focus { border-color: #7c3aed; }
+    #name-input:disabled { opacity: 0.5; }
+    #name-set-btn {
+      padding: 5px 12px;
+      font-size: 0.75rem;
+      background: #4c1d95;
+      border-color: #7c3aed;
+      color: #e8e8f0;
+    }
+    #name-set-btn:hover:not(:disabled) { background: #5b21b6; }
+    .name-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #1a1a24;
+      border: 1px solid #3b2f6e;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      color: #a78bfa;
+      cursor: default;
+    }
+    .name-badge .change-btn {
+      font-size: 0.65rem;
+      color: #4b5563;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+    }
+    .name-badge .change-btn:hover { color: #9ca3af; }
+    #name-badge-area { display: none; }
 
     /* ── 3-column layout ── */
     .layout {
@@ -244,6 +304,22 @@
 <header>
   <div class="dot" id="ws-dot"></div>
   <h1>Voice Agent</h1>
+
+  <!-- name entry -->
+  <div class="name-area" id="name-entry-area">
+    <label for="name-input">Who are you?</label>
+    <input id="name-input" type="text" placeholder="Enter your name…" autocomplete="off" list="known-users-list" />
+    <datalist id="known-users-list"></datalist>
+    <button id="name-set-btn">Start</button>
+  </div>
+
+  <!-- badge shown after name is set -->
+  <div class="name-area" id="name-badge-area">
+    <div class="name-badge">
+      <span id="name-badge-text"></span>
+      <button class="change-btn" id="name-change-btn" title="Change user">✕</button>
+    </div>
+  </div>
 </header>
 
 <div class="layout">
@@ -294,18 +370,25 @@
 </div>
 
 <script>
-  const orb         = document.getElementById("orb");
-  const voiceStatus = document.getElementById("voice-status");
-  const startBtn    = document.getElementById("start-btn");
-  const stopBtn     = document.getElementById("stop-btn");
-  const chatMessages= document.getElementById("chat-messages");
-  const chatInput   = document.getElementById("chat-input");
-  const sendBtn     = document.getElementById("send-btn");
-  const clearChat   = document.getElementById("clear-chat");
-  const errorBox    = document.getElementById("error-box");
-  const contextBox  = document.getElementById("context-box");
-  const clearLogBtn = document.getElementById("clear-log");
-  const wsDot       = document.getElementById("ws-dot");
+  const orb             = document.getElementById("orb");
+  const voiceStatus     = document.getElementById("voice-status");
+  const startBtn        = document.getElementById("start-btn");
+  const stopBtn         = document.getElementById("stop-btn");
+  const chatMessages    = document.getElementById("chat-messages");
+  const chatInput       = document.getElementById("chat-input");
+  const sendBtn         = document.getElementById("send-btn");
+  const clearChat       = document.getElementById("clear-chat");
+  const errorBox        = document.getElementById("error-box");
+  const contextBox      = document.getElementById("context-box");
+  const clearLogBtn     = document.getElementById("clear-log");
+  const wsDot           = document.getElementById("ws-dot");
+  const nameEntryArea   = document.getElementById("name-entry-area");
+  const nameBadgeArea   = document.getElementById("name-badge-area");
+  const nameInput       = document.getElementById("name-input");
+  const nameSetBtn      = document.getElementById("name-set-btn");
+  const nameBadgeText   = document.getElementById("name-badge-text");
+  const nameChangeBtn   = document.getElementById("name-change-btn");
+  const knownUsersList  = document.getElementById("known-users-list");
 
   // ── Error logger (row 1 — errors only) ──────────────────────────────────────
   function log(type, tag, msg) {
@@ -362,13 +445,72 @@
   // ── WebSocket ─────────────────────────────────────────────────────────────────
   const ws = new WebSocket(`ws://${location.host}`);
 
-  ws.onopen  = () => { wsDot.classList.add("alive"); };
+  ws.onopen  = () => {
+    wsDot.classList.add("alive");
+    // Restore name from localStorage
+    const saved = localStorage.getItem("va_user_name");
+    if (saved) setUser(saved);
+  };
   ws.onclose = () => { wsDot.classList.remove("alive"); log("error", "WS", "Disconnected from server"); };
   ws.onerror = () => log("error", "WS", "WebSocket connection error");
+
+  // ── Name / user management ────────────────────────────────────────────────────
+  function setUser(name) {
+    if (!name?.trim()) return;
+    name = name.trim();
+    localStorage.setItem("va_user_name", name);
+    nameBadgeText.textContent = name;
+    nameEntryArea.style.display = "none";
+    nameBadgeArea.style.display = "flex";
+    // Disable voice/chat until user is set — now re-enable
+    startBtn.disabled = false;
+    chatInput.disabled = false;
+    sendBtn.disabled = false;
+    // Tell the server
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "set_user", name }));
+    }
+    // Reset context pane for the new user
+    contextBox.innerHTML = "";
+    chatMessages.innerHTML = "";
+    pendingGreeting = null;
+  }
+
+  function clearUser() {
+    localStorage.removeItem("va_user_name");
+    nameInput.value = "";
+    nameBadgeArea.style.display = "none";
+    nameEntryArea.style.display = "flex";
+    startBtn.disabled = true;
+    chatInput.disabled = true;
+    sendBtn.disabled = true;
+    contextBox.innerHTML = "";
+    chatMessages.innerHTML = "";
+    if (active) endSession();
+  }
+
+  nameSetBtn.addEventListener("click", () => setUser(nameInput.value));
+  nameInput.addEventListener("keydown", e => { if (e.key === "Enter") setUser(nameInput.value); });
+  nameChangeBtn.addEventListener("click", clearUser);
+
+  // Disable voice/chat by default until a name is entered
+  startBtn.disabled = true;
+  chatInput.disabled = true;
+  sendBtn.disabled = true;
 
   ws.onmessage = (event) => {
     let msg;
     try { msg = JSON.parse(event.data); } catch { return; }
+
+    if (msg.type === "known_users") {
+      knownUsersList.innerHTML = "";
+      (msg.users || []).forEach(key => {
+        const opt = document.createElement("option");
+        // Convert key back to display form: "gourab_chanda" → "Gourab Chanda"
+        opt.value = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        knownUsersList.appendChild(opt);
+      });
+    }
 
     if (msg.type === "memory_greeting") {
       pendingGreeting = msg.text;
