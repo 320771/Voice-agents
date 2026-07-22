@@ -11,52 +11,74 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #0f0f13;
       color: #e8e8f0;
-      min-height: 100vh;
+      height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
-    /* ── top bar ── */
+    /* ── header ── */
     header {
-      padding: 16px 28px;
+      padding: 12px 24px;
       border-bottom: 1px solid #1e1e2e;
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-shrink: 0;
     }
-    header h1 { font-size: 1.1rem; font-weight: 600; color: #a78bfa; }
-    header .dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; }
-    header .dot.alive { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    header h1 { font-size: 1rem; font-weight: 600; color: #a78bfa; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; transition: background 0.3s; }
+    .dot.alive { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
 
-    /* ── two-column layout ── */
+    /* ── 3-column layout ── */
     .layout {
       display: flex;
       flex: 1;
       overflow: hidden;
     }
 
-    /* ── LEFT: agent panel ── */
-    .agent-panel {
+    .col {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .col-voice { flex: 0 0 280px; border-right: 1px solid #1e1e2e; }
+    .col-chat  { flex: 1; border-right: 1px solid #1e1e2e; }
+    .col-log   { flex: 0 0 340px; }
+
+    .col-header {
+      padding: 10px 16px;
+      border-bottom: 1px solid #1e1e2e;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #4b5563;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    /* ── VOICE column ── */
+    .voice-body {
       flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 32px 24px;
-      gap: 0;
+      padding: 24px 16px;
+      gap: 16px;
     }
 
     #orb {
-      width: 110px;
-      height: 110px;
+      width: 100px; height: 100px;
       border-radius: 50%;
       background: radial-gradient(circle at 40% 40%, #7c3aed, #4c1d95);
       box-shadow: 0 0 40px #7c3aed44;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 2rem;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.9rem;
       user-select: none;
     }
     #orb.listening { animation: pulse 1.2s ease-in-out infinite; box-shadow: 0 0 60px #7c3aedaa; }
@@ -65,107 +87,104 @@
     @keyframes pulse  { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
     @keyframes bounce { 0%{transform:scale(1)} 100%{transform:scale(1.05)} }
 
-    #status {
-      margin-top: 16px;
-      font-size: 0.82rem;
-      color: #6b7280;
-      letter-spacing: 0.03em;
-      min-height: 18px;
-      text-align: center;
+    #voice-status {
+      font-size: 0.78rem; color: #6b7280;
+      text-align: center; min-height: 18px;
+      padding: 0 8px;
     }
 
-    #transcript-box {
-      margin-top: 24px;
-      width: 100%;
-      max-width: 480px;
-      background: #1a1a24;
-      border: 1px solid #2d2d3d;
-      border-radius: 12px;
-      padding: 14px 18px;
-      min-height: 80px;
-      max-height: 260px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .message { display: flex; flex-direction: column; gap: 2px; }
-    .message .label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-    .message.user .label      { color: #a78bfa; }
-    .message.assistant .label { color: #06b6d4; }
-    .message .text { font-size: 0.88rem; line-height: 1.55; color: #d1d5db; }
-
-    #controls {
-      margin-top: 20px;
-      display: flex;
-      gap: 10px;
-    }
+    .voice-btns { display: flex; gap: 8px; }
 
     button {
-      padding: 8px 18px;
+      padding: 7px 16px;
       border-radius: 8px;
       border: 1px solid #2d2d3d;
       background: #1a1a24;
       color: #9ca3af;
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       cursor: pointer;
-      transition: background 0.15s, color 0.15s;
+      transition: background 0.15s;
     }
     button:hover:not(:disabled) { background: #252535; color: #e8e8f0; }
     button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-    #start-btn { background: #4c1d95; border-color: #7c3aed; color: #e8e8f0; padding: 10px 22px; }
+    #start-btn { background: #4c1d95; border-color: #7c3aed; color: #e8e8f0; }
     #start-btn:hover:not(:disabled) { background: #5b21b6; }
     #stop-btn:not(:disabled) { background: #7f1d1d; border-color: #ef4444; color: #fca5a5; }
 
-    /* ── RIGHT: log panel ── */
-    .log-panel {
-      width: 360px;
-      min-width: 300px;
-      background: #0a0a0f;
-      border-left: 1px solid #1e1e2e;
+    /* ── CHAT column ── */
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
+      gap: 10px;
     }
 
-    .log-header {
-      padding: 12px 16px;
-      border-bottom: 1px solid #1e1e2e;
+    .message { display: flex; flex-direction: column; gap: 3px; }
+    .message .label {
+      font-size: 0.65rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .message.user .label      { color: #a78bfa; }
+    .message.assistant .label { color: #06b6d4; }
+    .message.user .bubble     { background: #1e1a2e; border: 1px solid #3b2f6e; }
+    .message.assistant .bubble{ background: #0d1f2d; border: 1px solid #0e4c6e; }
+    .bubble {
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 0.86rem;
+      line-height: 1.55;
+      color: #d1d5db;
+    }
+
+    .chat-input-row {
+      border-top: 1px solid #1e1e2e;
+      padding: 10px 12px;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      gap: 8px;
+      flex-shrink: 0;
     }
-    .log-header span { font-size: 0.75rem; font-weight: 600; color: #4b5563; letter-spacing: 0.08em; text-transform: uppercase; }
-    #clear-log { font-size: 0.7rem; padding: 3px 8px; }
+    #chat-input {
+      flex: 1;
+      background: #1a1a24;
+      border: 1px solid #2d2d3d;
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: #e8e8f0;
+      font-size: 0.84rem;
+      outline: none;
+    }
+    #chat-input:focus { border-color: #7c3aed; }
+    #send-btn { background: #4c1d95; border-color: #7c3aed; color: #e8e8f0; }
+    #send-btn:hover:not(:disabled) { background: #5b21b6; }
 
+    /* ── LOG column ── */
     #log-box {
       flex: 1;
       overflow-y: auto;
-      padding: 10px 14px;
+      padding: 8px 12px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
       font-family: "SF Mono", "Fira Code", monospace;
-      font-size: 0.72rem;
+      font-size: 0.68rem;
     }
-
-    .log-entry {
-      display: flex;
-      gap: 8px;
-      line-height: 1.5;
-    }
-    .log-entry .ts  { color: #374151; flex-shrink: 0; }
-    .log-entry .tag { flex-shrink: 0; font-weight: 700; width: 68px; }
-    .log-entry .msg { color: #9ca3af; word-break: break-word; }
-
+    .log-entry { display: flex; gap: 6px; line-height: 1.5; }
+    .log-entry .ts  { color: #2d3748; flex-shrink: 0; }
+    .log-entry .tag { flex-shrink: 0; font-weight: 700; width: 64px; }
+    .log-entry .msg { color: #6b7280; word-break: break-word; }
     .log-entry.info    .tag { color: #6366f1; }
     .log-entry.success .tag { color: #22c55e; }
     .log-entry.warn    .tag { color: #f59e0b; }
     .log-entry.error   .tag { color: #ef4444; }
     .log-entry.tool    .tag { color: #06b6d4; }
     .log-entry.speech  .tag { color: #a78bfa; }
-    .log-entry.ws      .tag { color: #64748b; }
+    .log-entry.ws      .tag { color: #475569; }
+
+    #clear-log { font-size: 0.65rem; padding: 2px 7px; }
+    #clear-chat { font-size: 0.65rem; padding: 2px 7px; }
   </style>
 </head>
 <body>
@@ -177,24 +196,36 @@
 
 <div class="layout">
 
-  <!-- LEFT: agent -->
-  <div class="agent-panel">
-    <div id="orb" title="Click to start">🎙️</div>
-    <div id="status">Click Start to begin talking</div>
-
-    <div id="transcript-box"></div>
-
-    <div id="controls">
-      <button id="start-btn">Start</button>
-      <button id="stop-btn" disabled>Stop</button>
-      <button id="reset-btn">Clear chat</button>
+  <!-- ── COL 1: VOICE ── -->
+  <div class="col col-voice">
+    <div class="col-header">Voice</div>
+    <div class="voice-body">
+      <div id="orb" title="Click to start">🎙️</div>
+      <div id="voice-status">Click Start to begin talking</div>
+      <div class="voice-btns">
+        <button id="start-btn">Start</button>
+        <button id="stop-btn" disabled>Stop</button>
+      </div>
     </div>
   </div>
 
-  <!-- RIGHT: logs -->
-  <div class="log-panel">
-    <div class="log-header">
-      <span>Live Logs</span>
+  <!-- ── COL 2: CHAT ── -->
+  <div class="col col-chat">
+    <div class="col-header">
+      Chat
+      <button id="clear-chat">Clear</button>
+    </div>
+    <div id="chat-messages"></div>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Type a message…" autocomplete="off" />
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
+
+  <!-- ── COL 3: LOGS ── -->
+  <div class="col col-log">
+    <div class="col-header">
+      Live Logs
       <button id="clear-log">Clear</button>
     </div>
     <div id="log-box"></div>
@@ -203,127 +234,150 @@
 </div>
 
 <script>
-  // ── DOM refs ────────────────────────────────────────────────────────────────
   const orb         = document.getElementById("orb");
-  const statusEl    = document.getElementById("status");
-  const transcriptBox = document.getElementById("transcript-box");
+  const voiceStatus = document.getElementById("voice-status");
   const startBtn    = document.getElementById("start-btn");
   const stopBtn     = document.getElementById("stop-btn");
-  const resetBtn    = document.getElementById("reset-btn");
+  const chatMessages= document.getElementById("chat-messages");
+  const chatInput   = document.getElementById("chat-input");
+  const sendBtn     = document.getElementById("send-btn");
+  const clearChat   = document.getElementById("clear-chat");
   const logBox      = document.getElementById("log-box");
-  const wsDot       = document.getElementById("ws-dot");
   const clearLogBtn = document.getElementById("clear-log");
+  const wsDot       = document.getElementById("ws-dot");
 
   // ── Logger ──────────────────────────────────────────────────────────────────
   function log(type, tag, msg) {
-    const entry = document.createElement("div");
-    entry.className = `log-entry ${type}`;
-    const now = new Date();
-    const ts = now.toTimeString().slice(0,8);
-    entry.innerHTML = `<span class="ts">${ts}</span><span class="tag">[${tag}]</span><span class="msg">${escapeHtml(msg)}</span>`;
-    logBox.appendChild(entry);
+    const el = document.createElement("div");
+    el.className = `log-entry ${type}`;
+    const ts = new Date().toTimeString().slice(0, 8);
+    el.innerHTML = `<span class="ts">${ts}</span><span class="tag">[${tag}]</span><span class="msg">${escapeHtml(String(msg))}</span>`;
+    logBox.appendChild(el);
     logBox.scrollTop = logBox.scrollHeight;
-    // keep max 200 entries
-    while (logBox.children.length > 200) logBox.removeChild(logBox.firstChild);
+    while (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
   }
-
   clearLogBtn.addEventListener("click", () => logBox.innerHTML = "");
 
-  // ── WebSocket ───────────────────────────────────────────────────────────────
-  const ws = new WebSocket(`ws://${location.host}`);
-  let recognition = null;
+  // ── Shared state ─────────────────────────────────────────────────────────────
+  // currentAssistantEl: the bubble being streamed into right now
   let currentAssistantEl = null;
   let active = false;
+  let recognition = null;
 
-  ws.onopen = () => {
-    wsDot.classList.add("alive");
-    log("success", "WS", "Connected to server");
-  };
-  ws.onclose = () => {
-    wsDot.classList.remove("alive");
-    log("error", "WS", "Disconnected from server");
-  };
-  ws.onerror = (e) => log("error", "WS", "WebSocket error");
+  // ── WebSocket ─────────────────────────────────────────────────────────────────
+  const ws = new WebSocket(`ws://${location.host}`);
+
+  ws.onopen  = () => { wsDot.classList.add("alive"); log("success", "WS", "Connected to server"); };
+  ws.onclose = () => { wsDot.classList.remove("alive"); log("error", "WS", "Disconnected"); };
+  ws.onerror = () => log("error", "WS", "WebSocket error");
 
   ws.onmessage = (event) => {
     let msg;
     try { msg = JSON.parse(event.data); } catch { return; }
 
     if (msg.type === "thinking") {
-      log("info", "AGENT", "Received speech — calling Claude API…");
-      setStatus("Agent is thinking…");
+      log("info", "AGENT", "Processing — calling Claude…");
+      setVoiceStatus("Agent thinking…");
       orb.className = "";
       appendAssistantBubble();
     }
 
     if (msg.type === "tool_call") {
-      log("tool", "TOOL", `Calling tool: ${msg.tool}${msg.input ? " → " + JSON.stringify(msg.input) : ""}`);
-      setStatus(`Fetching ${msg.tool.replace("get_","")}…`);
+      log("tool", "TOOL", `${msg.tool}${msg.input ? " → " + JSON.stringify(msg.input) : ""}`);
+      setVoiceStatus(`Fetching ${msg.tool.replace("get_", "")}…`);
     }
 
     if (msg.type === "token" && currentAssistantEl) {
-      currentAssistantEl.querySelector(".text").textContent += msg.text;
-      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+      currentAssistantEl.querySelector(".bubble").textContent += msg.text;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
     if (msg.type === "done") {
-      log("success", "AGENT", `Response ready (${msg.fullText.length} chars) — speaking…`);
+      log("success", "AGENT", `Reply ready (${msg.fullText.length} chars)`);
       currentAssistantEl = null;
-      orb.className = "speaking";
-      setStatus("Agent speaking…");
-      speak(msg.fullText, () => {
-        if (active) {
-          log("speech", "MIC", "Agent done speaking — restarting mic");
-          listen();
-        }
-      });
+      setSendEnabled(true);
+      if (active) {
+        orb.className = "speaking";
+        setVoiceStatus("Agent speaking…");
+        speak(msg.fullText, () => {
+          if (active) { log("speech", "MIC", "Agent done — restarting mic"); listen(); }
+        });
+      } else {
+        orb.className = "";
+        setVoiceStatus("Click Start to begin talking");
+      }
     }
 
     if (msg.type === "error") {
       log("error", "ERROR", msg.message || "Unknown error");
       currentAssistantEl = null;
+      setSendEnabled(true);
       orb.className = "";
-      setStatus("Error — retrying…");
+      setVoiceStatus(active ? "Error — retrying…" : "Click Start to begin talking");
       if (active) setTimeout(listen, 800);
     }
 
     if (msg.type === "reset_ok") {
-      log("info", "RESET", "Conversation history cleared");
-      transcriptBox.innerHTML = "";
-      setStatus(active ? "Listening… speak now" : "Click Start to begin talking");
+      log("info", "RESET", "Conversation cleared");
+      chatMessages.innerHTML = "";
+      setVoiceStatus(active ? "Listening… speak now" : "Click Start to begin talking");
     }
   };
 
-  // ── TTS ─────────────────────────────────────────────────────────────────────
-  function speak(text, onEnd) {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.05;
-    utter.onend = onEnd || null;
-    utter.onerror = (e) => { log("error", "TTS", "Speech synthesis error: " + e.error); if (onEnd) onEnd(); };
-    window.speechSynthesis.speak(utter);
+  // ── Send a message (shared by voice + chat) ──────────────────────────────────
+  function sendMessage(text) {
+    text = text.trim();
+    if (!text || ws.readyState !== WebSocket.OPEN) return;
+    appendUserBubble(text);
+    setSendEnabled(false);
+    log("speech", "SEND", `"${text}"`);
+    ws.send(JSON.stringify({ type: "user_speech", text }));
   }
 
-  // ── Mic (one utterance) ─────────────────────────────────────────────────────
+  // ── Chat input ────────────────────────────────────────────────────────────────
+  sendBtn.addEventListener("click", () => {
+    sendMessage(chatInput.value);
+    chatInput.value = "";
+  });
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(chatInput.value);
+      chatInput.value = "";
+    }
+  });
+  clearChat.addEventListener("click", () => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
+  });
+
+  // ── TTS ────────────────────────────────────────────────────────────────────────
+  function speak(text, onEnd) {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    u.onend = onEnd || null;
+    u.onerror = (e) => { log("error", "TTS", e.error); if (onEnd) onEnd(); };
+    window.speechSynthesis.speak(u);
+  }
+
+  // ── Voice ──────────────────────────────────────────────────────────────────────
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   function listen() {
     if (!active) return;
     if (!SpeechRecognition) {
-      log("error", "MIC", "SpeechRecognition not supported — use Chrome");
-      setStatus("Use Chrome — Speech API not available");
+      log("error", "MIC", "Not supported — use Chrome");
+      setVoiceStatus("Use Chrome");
       return;
     }
-
     recognition = new SpeechRecognition();
     recognition.lang = "en-US";
     recognition.continuous = false;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
 
     orb.className = "listening";
-    setStatus("Listening… speak now");
-    log("speech", "MIC", "Microphone opened — waiting for speech");
+    setVoiceStatus("Listening… speak now");
+    log("speech", "MIC", "Mic opened");
 
     recognition.onresult = (e) => {
       let interim = "", final = "";
@@ -331,37 +385,29 @@
         if (e.results[i].isFinal) final += e.results[i][0].transcript;
         else interim += e.results[i][0].transcript;
       }
-      if (interim) setStatus("You: " + interim);
+      if (interim) setVoiceStatus("You: " + interim);
       if (final) {
-        const text = final.trim();
-        log("speech", "USER", text);
-        appendUserMessage(text);
-        ws.send(JSON.stringify({ type: "user_speech", text }));
         orb.className = "";
-        setStatus("Sending to agent…");
-        log("ws", "SEND", `Sent to server: "${text}"`);
+        setVoiceStatus("Sending…");
+        sendMessage(final.trim());
       }
     };
 
     recognition.onerror = (e) => {
-      log("warn", "MIC", `Recognition error: ${e.error}`);
+      log("warn", "MIC", e.error);
       if (e.error === "no-speech" && active) { listen(); return; }
-      if (e.error !== "aborted") setStatus("Mic error: " + e.error);
+      if (e.error !== "aborted") setVoiceStatus("Mic error: " + e.error);
     };
 
     recognition.onend = () => {
-      if (active && orb.className === "listening") {
-        log("speech", "MIC", "No speech detected — retrying");
-        listen();
-      }
+      if (active && orb.className === "listening") listen();
     };
 
     recognition.start();
   }
 
-  // ── Session control ─────────────────────────────────────────────────────────
   function beginSession() {
-    log("info", "SESSION", "Session started");
+    log("info", "SESSION", "Voice session started");
     active = true;
     startBtn.disabled = true;
     stopBtn.disabled = false;
@@ -369,46 +415,41 @@
   }
 
   function endSession() {
-    log("info", "SESSION", "Session stopped by user");
+    log("info", "SESSION", "Voice session stopped");
     active = false;
     if (recognition) { recognition.abort(); recognition = null; }
     window.speechSynthesis.cancel();
     orb.className = "";
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    setStatus("Click Start to begin talking");
+    setVoiceStatus("Click Start to begin talking");
   }
 
   orb.addEventListener("click", () => active ? endSession() : beginSession());
   startBtn.addEventListener("click", beginSession);
   stopBtn.addEventListener("click", endSession);
-  resetBtn.addEventListener("click", () => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
-  });
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-  function appendUserMessage(text) {
+  // ── Bubble helpers ─────────────────────────────────────────────────────────────
+  function appendUserBubble(text) {
     const el = document.createElement("div");
     el.className = "message user";
-    el.innerHTML = `<span class="label">You</span><span class="text">${escapeHtml(text)}</span>`;
-    transcriptBox.appendChild(el);
-    transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    el.innerHTML = `<span class="label">You</span><div class="bubble">${escapeHtml(text)}</div>`;
+    chatMessages.appendChild(el);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
   }
 
   function appendAssistantBubble() {
     const el = document.createElement("div");
     el.className = "message assistant";
-    el.innerHTML = `<span class="label">Agent</span><span class="text"></span>`;
-    transcriptBox.appendChild(el);
-    transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    el.innerHTML = `<span class="label">Agent</span><div class="bubble"></div>`;
+    chatMessages.appendChild(el);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
     currentAssistantEl = el;
   }
 
-  function setStatus(text) { statusEl.textContent = text; }
-
-  function escapeHtml(str) {
-    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  }
+  function setVoiceStatus(t) { voiceStatus.textContent = t; }
+  function setSendEnabled(v) { sendBtn.disabled = !v; chatInput.disabled = !v; }
+  function escapeHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 </script>
 </body>
 </html>
