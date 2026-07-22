@@ -9,7 +9,7 @@ import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
 import { searchProducts, getDeals } from "./products.js";
-import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers,
+import { getUserSummary, saveSummary, buildMemoryContext, buildGreeting, listUsers,
          buildCrossSellContext, queueCrossSellOpportunities, getNextCrossSellOffer, markCrossSellPresented } from "./memory.js";
 import { OFFERS, detectOpportunities, getOffer } from "./crosssell-library.js";
 import { sendWhatsApp, verifyWebhook, parseIncomingMessages, markAsRead } from "./whatsapp.js";
@@ -434,23 +434,23 @@ wss.on("connection", (ws) => {
   conversationHistory.set(sessionId, []);
 
   let userName = "anonymous";
-  let systemPrompt = buildSystemPrompt(userName, []);
+  let systemPrompt = buildSystemPrompt(userName, null);
 
   // Send known users list so the UI can show autocomplete suggestions
   ws.send(JSON.stringify({ type: "known_users", users: listUsers() }));
 
-  function buildSystemPrompt(name, sessions) {
+  function buildSystemPrompt(name, summary) {
     return "You are a helpful, friendly voice assistant. " +
       "When tool data is provided in [Tool data - ...] brackets, use it to answer accurately and concisely. " +
       "Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud." +
-      buildMemoryContext(name, sessions) +
+      buildMemoryContext(name, summary) +
       buildCrossSellContext(name, OFFERS);
   }
 
   function loadUserMemory(name) {
     userName = name;
-    const recentSessions = getRecentSessions(name);
-    systemPrompt = buildSystemPrompt(name, recentSessions);
+    const summary = getUserSummary(name);
+    systemPrompt = buildSystemPrompt(name, summary);
     const pendingOffer = getNextCrossSellOffer(name);
     if (pendingOffer) {
       slog(`CROSSSELL [${name}]: Active offer in prompt — ${pendingOffer}`);
@@ -458,10 +458,10 @@ wss.on("connection", (ws) => {
     } else {
       slog(`CROSSSELL [${name}]: No pending offer for this session`);
     }
-    const greeting = buildGreeting(name, recentSessions);
+    const greeting = buildGreeting(name, summary);
     if (greeting) {
       ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
-      slog(`MEMORY [${name}]: Sent greeting from ${recentSessions.length} past session(s)`);
+      slog(`MEMORY [${name}]: Sent greeting — ${summary ? "returning user" : "new user"}`);
     }
   }
 
@@ -474,14 +474,12 @@ wss.on("connection", (ws) => {
     const history = conversationHistory.get(sessionId) || [];
     if (history.length < 2) return;
 
-    // Save a placeholder synchronously FIRST so an immediate reconnect sees this session.
-    // Build a rough summary from the last user message so the greeting isn't generic.
+    // Save a placeholder immediately (synchronous) so a fast reconnect sees something useful
     const lastUserMsg = [...history].reverse().find(m => m.role === "user");
-    const placeholderSummary = lastUserMsg
+    const placeholder = lastUserMsg
       ? `We discussed: ${lastUserMsg.content.slice(0, 120).split("\n")[0]}`
       : "We had a conversation.";
-    const endedAt = new Date().toISOString();
-    saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt, summary: placeholderSummary, topics: [] });
+    saveSummary(userName, placeholder);
 
     try {
       const transcript = history
@@ -489,18 +487,15 @@ wss.on("connection", (ws) => {
         .join("\n");
       const res = await client.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 200,
-        system: 'Summarise this conversation in 1-2 sentences. Then on a new line write "TOPICS:" followed by up to 5 comma-separated key topics. Be concise.',
+        max_tokens: 150,
+        system: "Summarise this conversation in 1-2 sentences. Be concise and conversational — this will be read aloud as a greeting next time the user connects.",
         messages: [{ role: "user", content: transcript }],
       });
-      const raw = res.content[0]?.text?.trim() || "";
-      const [summaryPart, topicsPart] = raw.split(/\nTOPICS:/i);
-      const summary = summaryPart?.trim() || "Recent conversation.";
-      const topics = topicsPart ? topicsPart.split(",").map(t => t.trim()).filter(Boolean) : [];
+      const summary = res.content[0]?.text?.trim() || placeholder;
 
-      // Update placeholder with real summary
-      saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt, summary, topics });
-      slog(`MEMORY [${userName}]: Session saved — ${summary.slice(0, 80)}`);
+      // Overwrite placeholder with the real Claude-generated summary
+      saveSummary(userName, summary);
+      slog(`MEMORY [${userName}]: Summary saved — ${summary.slice(0, 80)}`);
 
       // 1. Mark whatever offer was injected THIS session as presented (before queuing new ones)
       const presentedThisSession = getNextCrossSellOffer(userName);
@@ -509,8 +504,8 @@ wss.on("connection", (ws) => {
         slog(`CROSSSELL [${userName}]: Marked presented — ${presentedThisSession}`);
       }
 
-      // 2. Detect new opportunities from this session's topics + summary → queue for NEXT session
-      const opportunityIds = detectOpportunities(topics, summary);
+      // 2. Detect new opportunities from this session's summary → queue for NEXT session
+      const opportunityIds = detectOpportunities([], summary);
       if (opportunityIds.length) {
         const resolvedOffers = opportunityIds.map(id => getOffer(id)).filter(Boolean);
         queueCrossSellOpportunities(userName, resolvedOffers);
