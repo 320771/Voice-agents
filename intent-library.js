@@ -158,6 +158,18 @@ const TRAINING_DATA = [
   ["gravity kya hoti hai",                           "wiki", "gravity"],
   ["tell me about the Great Wall of China",          "wiki", "Great Wall of China"],
 
+  // WHATSAPP
+  ["send WhatsApp to 919876543210 saying hello",         "whatsapp", "919876543210::hello"],
+  ["WhatsApp message to John saying I'll be late",       "whatsapp", ""],
+  ["send a WhatsApp to my number",                       "whatsapp", ""],
+  ["WhatsApp karo message bhejo",                        "whatsapp", ""],
+  ["send WhatsApp message",                              "whatsapp", ""],
+  ["message on WhatsApp",                                "whatsapp", ""],
+  ["drop a WhatsApp to 918888888888 saying meeting at 5","whatsapp", "918888888888::meeting at 5"],
+  ["WhatsApp bhejo",                                     "whatsapp", ""],
+  ["send WA message",                                    "whatsapp", ""],
+  ["text on WhatsApp",                                   "whatsapp", ""],
+
   // NONE
   ["hello",                                          "none", ""],
   ["hi there",                                       "none", ""],
@@ -220,6 +232,15 @@ const PARAM_EXTRACTORS = {
     // Named sport/team/league
     const named = text.match(/\b(cricket|football|soccer|basketball|tennis|IPL|NBA|NFL|Premier League|Champions League|World Cup|F1|badminton|hockey|rugby|Olympics)\b/i);
     if (named) return named[1];
+    return "";
+  },
+  whatsapp: (text) => {
+    // Extract number and message: "send WhatsApp to 91XXXXXXXXXX saying <msg>"
+    const m = text.match(/(?:to|ko)\s+([\d\s\+\-]{7,15})\s+(?:saying|message|saying that|with|bolo|bolke|likhke)\s+(.+)/i);
+    if (m) return `${m[1].replace(/\s/g, "")}::${m[2].trim()}`;
+    // Just a number with no message
+    const num = text.match(/(?:to|ko)\s+([\d\+]{10,15})/i)?.[1];
+    if (num) return `${num}::`;
     return "";
   },
   wiki: (text) => {

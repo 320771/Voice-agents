@@ -8,6 +8,7 @@ import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
 import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers } from "./memory.js";
+import { sendWhatsApp, verifyWebhook, parseIncomingMessages, markAsRead } from "./whatsapp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -23,7 +24,46 @@ const client = new Anthropic({
   apiKey,
 });
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+// ── WhatsApp webhook ──────────────────────────────────────────────────────────
+
+// GET: Meta verifies the webhook URL
+app.get("/webhook", verifyWebhook);
+
+// POST: incoming messages from WhatsApp users
+app.post("/webhook", async (req, res) => {
+  res.sendStatus(200); // always ack immediately to avoid Meta retries
+
+  const incoming = parseIncomingMessages(req.body);
+  for (const msg of incoming) {
+    slog(`WHATSAPP IN [${msg.from}]: ${msg.text}`);
+    markAsRead(msg.messageId);
+
+    try {
+      // Run through intent + tool detection, then Claude
+      const toolResult = await fetchToolData(msg.text, () => {});
+      let userContent = msg.text;
+      if (toolResult) userContent = `${msg.text}\n\n[Tool data - ${toolResult.tool}]: ${toolResult.data}`;
+
+      // Use a lightweight single-turn call (no persistent history for WA)
+      const waHistory = [{ role: "user", content: userContent }];
+      const response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        system: "You are a helpful voice assistant replying over WhatsApp. Keep replies short and conversational — no markdown, no bullet points. When tool data is in [Tool data - ...] brackets, use it to answer accurately.",
+        messages: waHistory,
+      });
+      const reply = response.content[0]?.text?.trim() || "Sorry, I couldn't process that.";
+      slog(`WHATSAPP OUT [${msg.from}]: ${reply.slice(0, 80)}`);
+      await sendWhatsApp(msg.from, reply);
+    } catch (err) {
+      slog("WHATSAPP REPLY ERROR:", err.message);
+      await sendWhatsApp(msg.from, "Sorry, I ran into an error. Please try again.").catch(() => {});
+    }
+  }
+});
 
 const LOG_FILE = path.join(__dirname, "agent.log");
 function slog(...args) {
@@ -128,6 +168,20 @@ async function fetchToolData(text, sendLog) {
     if (!param) return null;
     sendLog("tool_call", "get_wikipedia", { topic: param });
     return { tool: "wiki", data: await get_wikipedia(param) };
+  }
+  if (intent === "whatsapp") {
+    // param format: "NUMBER::MESSAGE" — split on first ::
+    const sep = param.indexOf("::");
+    if (sep === -1) return { tool: "whatsapp", data: "Please say: send WhatsApp to <number> saying <message>" };
+    const to = param.slice(0, sep).trim();
+    const message = param.slice(sep + 2).trim();
+    try {
+      sendLog("tool_call", "send_whatsapp", { to, message });
+      await sendWhatsApp(to, message);
+      return { tool: "whatsapp", data: `WhatsApp message sent to ${to}.` };
+    } catch (e) {
+      return { tool: "whatsapp", data: `Failed to send WhatsApp: ${e.message}` };
+    }
   }
   return null;
 }
