@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
 import path from "path";
 import fetch from "node-fetch";
+import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -25,6 +26,13 @@ const client = new Anthropic({
 });
 
 app.use(express.static(path.join(__dirname, "public")));
+
+const LOG_FILE = path.join(__dirname, "agent.log");
+function slog(...args) {
+  const line = `[${new Date().toISOString()}] ${args.join(" ")}\n`;
+  process.stdout.write(line);
+  fs.appendFileSync(LOG_FILE, line);
+}
 
 const conversationHistory = new Map();
 
@@ -153,12 +161,15 @@ wss.on("connection", (ws) => {
       const userText = payload.text?.trim();
       if (!userText) return;
 
+      slog("USER:", userText);
       const history = conversationHistory.get(sessionId);
       ws.send(JSON.stringify({ type: "thinking" }));
 
       try {
         // 1. Check if a tool should be called
+        slog("TOOL CHECK for:", userText);
         const toolResult = await fetchToolData(userText, sendLog);
+        if (toolResult) slog("TOOL RESULT:", toolResult.tool, "=>", toolResult.data.slice(0, 120));
 
         // 2. Build the message — inject tool data into context if available
         let userContent = userText;
@@ -169,6 +180,7 @@ wss.on("connection", (ws) => {
         history.push({ role: "user", content: userContent });
 
         // 3. Stream Claude's response
+        slog("CALLING Claude API, model=claude-haiku-4-5-20251001, baseURL=", baseURL);
         const stream = await client.messages.stream({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
@@ -184,12 +196,13 @@ wss.on("connection", (ws) => {
           }
         }
 
+        slog("RESPONSE:", finalText.slice(0, 120));
         history.push({ role: "assistant", content: finalText });
         if (history.length > 40) history.splice(0, 2);
         ws.send(JSON.stringify({ type: "done", fullText: finalText }));
 
       } catch (err) {
-        console.error("Error:", err.message);
+        slog("ERROR:", err.message, err.status || "", JSON.stringify(err.error || ""));
         ws.send(JSON.stringify({ type: "error", message: "Sorry, I encountered an error. Please try again." }));
       }
     }
