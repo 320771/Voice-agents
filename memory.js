@@ -165,10 +165,10 @@ export function buildCrossSellContext(name, catalog = []) {
   const mode = wasPresented ? "REBUTTAL" : "PITCH";
 
   return (
-    `\n\nCROSS-SELL ${mode}: You have one relevant offer to mention to ${name || "the user"} ` +
-    `during this conversation. Bring it up naturally once, at the right moment — ` +
-    `not as your opening line, only when the topic flows towards it, and don't be pushy. ` +
-    `Say: "${line}"`
+    `\n\nCROSS-SELL ${mode}: Mention this offer to ${name || "the user"} exactly once during this conversation. ` +
+    `Do NOT say it as your very first response. After the first exchange, find a natural moment — ` +
+    `even if the topic doesn't flow there perfectly, weave it in briefly after answering their question. ` +
+    `Be warm and conversational, not salesy. Say: "${line}"`
   );
 }
 

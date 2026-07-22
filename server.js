@@ -441,6 +441,8 @@ wss.on("connection", (ws) => {
     userName = name;
     const recentSessions = getRecentSessions(name);
     systemPrompt = buildSystemPrompt(name, recentSessions);
+    const pendingOffer = getNextCrossSellOffer(name);
+    if (pendingOffer) slog(`CROSSSELL [${name}]: Active offer in prompt — ${pendingOffer}`);
     const greeting = buildGreeting(name, recentSessions);
     if (greeting) {
       ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
@@ -473,19 +475,19 @@ wss.on("connection", (ws) => {
       saveSession(userName, { id: sessionId, startedAt: sessionStartedAt, endedAt: new Date().toISOString(), summary, topics });
       slog(`MEMORY [${userName}]: Session saved — ${summary.slice(0, 80)}`);
 
-      // Detect cross-sell opportunities from this session's topics + summary
+      // 1. Mark whatever offer was injected THIS session as presented (before queuing new ones)
+      const presentedThisSession = getNextCrossSellOffer(userName);
+      if (presentedThisSession) {
+        markCrossSellPresented(userName, presentedThisSession);
+        slog(`CROSSSELL [${userName}]: Marked presented — ${presentedThisSession}`);
+      }
+
+      // 2. Detect new opportunities from this session's topics + summary → queue for NEXT session
       const opportunityIds = detectOpportunities(topics, summary);
       if (opportunityIds.length) {
         const resolvedOffers = opportunityIds.map(id => getOffer(id)).filter(Boolean);
         queueCrossSellOpportunities(userName, resolvedOffers);
-        slog(`CROSSSELL [${userName}]: Queued ${opportunityIds.join(", ")}`);
-      }
-
-      // Mark current cross-sell as presented (it was in the system prompt this session)
-      const presented = getNextCrossSellOffer(userName);
-      if (presented) {
-        markCrossSellPresented(userName, presented);
-        slog(`CROSSSELL [${userName}]: Marked presented — ${presented}`);
+        slog(`CROSSSELL [${userName}]: Queued for next session — ${opportunityIds.join(", ")}`);
       }
     } catch (e) {
       slog("MEMORY ERROR:", e.message);
