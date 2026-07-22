@@ -208,44 +208,40 @@ wss.on("connection", (ws) => {
       try {
         let finalText = "";
 
-        // agentic loop: keep going until no more tool calls
+        const SYSTEM = "You are a helpful, friendly voice assistant with access to weather, news, Wikipedia, stocks, and sports tools. Use them when relevant. Keep responses concise and conversational — spoken aloud, no markdown or bullet points.";
+
+        // agentic loop: handle tool calls, then get final text
         while (true) {
           const response = await client.messages.create({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 1024,
-            system: "You are a helpful, friendly voice assistant with access to weather, news, Wikipedia, stocks, and sports tools. Use them whenever the user asks about these topics. Keep responses concise and conversational — spoken aloud, so no markdown or bullet points.",
+            system: SYSTEM,
             tools: TOOLS,
             messages: history,
           });
 
           if (response.stop_reason === "tool_use") {
-            // execute all tool calls
             const toolResults = [];
             for (const block of response.content) {
               if (block.type === "tool_use") {
-                ws.send(JSON.stringify({ type: "tool_call", tool: block.name, input: block.input }));
-                const result = await toolFns[block.name]?.(block.input) ?? "Tool not found";
-                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+                ws.send(JSON.stringify({ type: "tool_call", tool: block.name }));
+                const result = await (toolFns[block.name]?.(block.input) ?? Promise.resolve("Tool not found"));
+                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: String(result) });
               }
             }
-            // add assistant + tool results to history and loop
             history.push({ role: "assistant", content: response.content });
             history.push({ role: "user", content: toolResults });
             continue;
           }
 
-          // no more tool calls — stream the final text response
-          const stream = await client.messages.stream({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 1024,
-            system: "You are a helpful, friendly voice assistant. Keep responses concise and conversational — spoken aloud, so no markdown or bullet points.",
-            messages: history,
-          });
-
-          for await (const event of stream) {
-            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-              finalText += event.delta.text;
-              ws.send(JSON.stringify({ type: "token", text: event.delta.text }));
+          // extract text directly from this response — no second API call needed
+          for (const block of response.content) {
+            if (block.type === "text") {
+              finalText += block.text;
+              // send tokens word by word so the UI streams nicely
+              for (const word of block.text.split(" ")) {
+                ws.send(JSON.stringify({ type: "token", text: word + " " }));
+              }
             }
           }
           break;
