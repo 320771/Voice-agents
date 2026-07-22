@@ -104,9 +104,17 @@ async function fetchToolData(text, sendLog) {
   const t = text.toLowerCase();
 
   if (/weather|temperature|forecast|rain|sunny|cold|hot/.test(t)) {
-    const city = text.match(/(?:in|for|at)\s+([A-Za-z\s]+?)(?:\?|$|,)/i)?.[1]?.trim() || "London";
-    sendLog("tool_call", "get_weather", { city });
-    return { tool: "weather", data: await get_weather(city) };
+    // try to extract city name from the sentence
+    const cityMatch =
+      text.match(/(?:weather|temperature|forecast|rain|sunny|cold|hot)\s+(?:in|at|for)\s+([A-Za-z\s]+?)(?:\?|$|,)/i)?.[1]?.trim() ||
+      text.match(/(?:in|at|for)\s+([A-Za-z\s]+?)(?:\?|$|,)/i)?.[1]?.trim() ||
+      text.match(/(?:in|at|for)\s+([A-Za-z]+)/i)?.[1]?.trim();
+    if (!cityMatch) {
+      // no city found — ask the user instead of defaulting
+      return { tool: "weather", data: "Please specify a city. For example: what is the weather in Mumbai?" };
+    }
+    sendLog("tool_call", "get_weather", { city: cityMatch });
+    return { tool: "weather", data: await get_weather(cityMatch) };
   }
 
   if (/news|headline|latest|happening|today/.test(t)) {
@@ -116,8 +124,13 @@ async function fetchToolData(text, sendLog) {
   }
 
   if (/stock|share price|market|nasdaq|nyse|\$[A-Z]{2,5}/.test(t)) {
-    const sym = text.match(/\b([A-Z]{2,5})\b/)?.[1] ||
-                text.match(/(?:stock|shares?) (?:of|for)?\s+(\w+)/i)?.[1] || "AAPL";
+    const sym =
+      text.match(/\$([A-Z]{2,5})/)?.[1] ||
+      text.match(/\b([A-Z]{2,5})\b/)?.[1] ||
+      text.match(/(?:stock|shares?|price) (?:of|for)?\s+([A-Za-z]+)/i)?.[1];
+    if (!sym) {
+      return { tool: "stock", data: "Please specify a stock symbol or company name. For example: what is Apple stock price or what is AAPL?" };
+    }
     sendLog("tool_call", "get_stock", { symbol: sym });
     return { tool: "stock", data: await get_stock(sym) };
   }
