@@ -128,7 +128,7 @@
 
     button:hover { background: #252535; color: #e8e8f0; }
 
-    #mic-btn {
+    #start-btn {
       background: #4c1d95;
       border-color: #7c3aed;
       color: #e8e8f0;
@@ -136,20 +136,28 @@
       padding: 10px 24px;
     }
 
-    #mic-btn:hover { background: #5b21b6; }
-    #mic-btn.active { background: #7c3aed; }
+    #start-btn:hover:not(:disabled) { background: #5b21b6; }
+
+    #stop-btn:not(:disabled) {
+      background: #7f1d1d;
+      border-color: #ef4444;
+      color: #fca5a5;
+    }
+
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
   </style>
 </head>
 <body>
   <h1>Voice Agent</h1>
 
-  <div id="orb" title="Click to speak">🎙️</div>
-  <div id="status">Click the orb or the button to start speaking</div>
+  <div id="orb" title="Click to start conversation">🎙️</div>
+  <div id="status">Click Start to begin talking</div>
 
   <div id="transcript-box"></div>
 
   <div id="controls">
-    <button id="mic-btn">Hold to speak</button>
+    <button id="start-btn">Start</button>
+    <button id="stop-btn" disabled>Stop</button>
     <button id="reset-btn">Clear chat</button>
   </div>
 
@@ -157,25 +165,27 @@
     const orb = document.getElementById("orb");
     const statusEl = document.getElementById("status");
     const transcriptBox = document.getElementById("transcript-box");
-    const micBtn = document.getElementById("mic-btn");
+    const startBtn = document.getElementById("start-btn");
+    const stopBtn = document.getElementById("stop-btn");
     const resetBtn = document.getElementById("reset-btn");
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      statusEl.textContent = "Speech recognition not supported in this browser. Try Chrome.";
+      statusEl.textContent = "Speech recognition not supported. Use Chrome.";
     }
 
     const ws = new WebSocket(`ws://${location.host}`);
     let recognition = null;
     let currentAssistantEl = null;
-    let isSpeaking = false;
-    let utteranceQueue = [];
+    let active = false;   // true = conversation session is running
+    let agentTalking = false; // true = agent is currently speaking
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
 
       if (msg.type === "thinking") {
         setStatus("Thinking…");
+        orb.className = "";
         appendAssistantBubble();
       }
 
@@ -187,11 +197,13 @@
       }
 
       if (msg.type === "done") {
-        setStatus("Speaking…");
+        agentTalking = true;
+        setStatus("Agent speaking… (talking now restarts mic after)");
         orb.className = "speaking";
         speak(msg.fullText, () => {
-          orb.className = "";
-          setStatus("Click the orb or the button to start speaking");
+          agentTalking = false;
+          currentAssistantEl = null;
+          if (active) startListening(); // auto-restart mic after agent finishes
         });
         currentAssistantEl = null;
       }
@@ -199,12 +211,13 @@
       if (msg.type === "error") {
         setStatus(msg.message);
         orb.className = "";
-        speak(msg.message);
+        agentTalking = false;
+        if (active) startListening();
       }
 
       if (msg.type === "reset_ok") {
         transcriptBox.innerHTML = "";
-        setStatus("Conversation cleared");
+        setStatus(active ? "Listening…" : "Click Start to begin talking");
       }
     };
 
@@ -218,17 +231,18 @@
     }
 
     function startListening() {
-      if (!SpeechRecognition) return;
-      if (isSpeaking) window.speechSynthesis.cancel();
+      if (!SpeechRecognition || !active) return;
+      if (recognition) { recognition.abort(); recognition = null; }
 
       recognition = new SpeechRecognition();
       recognition.lang = "en-US";
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
+      recognition.continuous = false;
 
       recognition.onstart = () => {
         orb.className = "listening";
-        setStatus("Listening…");
+        setStatus("Listening… speak now");
       };
 
       recognition.onresult = (e) => {
@@ -237,34 +251,57 @@
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "user_speech", text }));
         }
+        orb.className = "";
+        setStatus("Thinking…");
       };
 
       recognition.onerror = (e) => {
+        if (e.error === "no-speech" && active) {
+          startListening(); // restart on silence
+          return;
+        }
         if (e.error !== "aborted") setStatus(`Error: ${e.error}`);
         orb.className = "";
       };
 
       recognition.onend = () => {
-        if (orb.classList.contains("listening")) orb.className = "";
+        // only restart if still active and agent is not currently talking
+        if (active && !agentTalking && orb.className !== "speaking") {
+          startListening();
+        }
       };
 
       recognition.start();
     }
 
-    function stopListening() {
-      if (recognition) {
-        recognition.stop();
-        recognition = null;
-      }
+    function beginSession() {
+      active = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      startBtn.style.background = "#374151";
+      stopBtn.style.background = "#7c3aed";
+      stopBtn.style.borderColor = "#7c3aed";
+      stopBtn.style.color = "#fff";
+      startListening();
     }
 
-    orb.addEventListener("click", startListening);
+    function endSession() {
+      active = false;
+      agentTalking = false;
+      if (recognition) { recognition.abort(); recognition = null; }
+      window.speechSynthesis.cancel();
+      orb.className = "";
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      stopBtn.style.background = "";
+      stopBtn.style.borderColor = "";
+      stopBtn.style.color = "";
+      setStatus("Click Start to begin talking");
+    }
 
-    micBtn.addEventListener("mousedown", startListening);
-    micBtn.addEventListener("touchstart", (e) => { e.preventDefault(); startListening(); });
-    micBtn.addEventListener("mouseup", stopListening);
-    micBtn.addEventListener("mouseleave", stopListening);
-    micBtn.addEventListener("touchend", stopListening);
+    orb.addEventListener("click", () => { if (!active) beginSession(); else endSession(); });
+    startBtn.addEventListener("click", beginSession);
+    stopBtn.addEventListener("click", endSession);
 
     resetBtn.addEventListener("click", () => {
       if (ws.readyState === WebSocket.OPEN) {
