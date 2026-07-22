@@ -313,8 +313,11 @@
       currentAssistantEl = null;
       setSendEnabled(true);
       orb.className = "";
-      setVoiceStatus(active ? "Error — retrying…" : "Click Start to begin talking");
-      if (active) setTimeout(listen, 800);
+      // stop the session on error so user can see what went wrong
+      active = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      setVoiceStatus("❌ " + (msg.message || "Error — see Logs panel"));
     }
 
     if (msg.type === "reset_ok") {

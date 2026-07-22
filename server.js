@@ -202,8 +202,13 @@ wss.on("connection", (ws) => {
         ws.send(JSON.stringify({ type: "done", fullText: finalText }));
 
       } catch (err) {
-        slog("ERROR:", err.message, err.status || "", JSON.stringify(err.error || ""));
-        ws.send(JSON.stringify({ type: "error", message: "Sorry, I encountered an error. Please try again." }));
+        const detail = [
+          err.status ? `HTTP ${err.status}` : "",
+          err.message || "",
+          err.error ? JSON.stringify(err.error) : "",
+        ].filter(Boolean).join(" | ");
+        slog("ERROR:", detail);
+        ws.send(JSON.stringify({ type: "error", message: `Error: ${detail}` }));
       }
     }
 
