@@ -225,6 +225,8 @@
     }
     .ctx-turn.ctx-user .ctx-role     { color: #7c3aed; }
     .ctx-turn.ctx-assistant .ctx-role{ color: #0891b2; }
+    .ctx-turn.ctx-memory .ctx-role   { color: #d97706; }
+    .ctx-turn.ctx-memory .ctx-text   { color: #78350f; font-style: italic; }
     .ctx-turn .ctx-text {
       color: #4b5563;
       font-size: 0.67rem;
@@ -355,6 +357,7 @@
   let active = false;
   let recognition = null;
   let lastSource = "chat"; // "voice" or "chat" — controls whether agent speaks
+  let pendingGreeting = null; // memory greeting to speak on voice session start
 
   // ── WebSocket ─────────────────────────────────────────────────────────────────
   const ws = new WebSocket(`ws://${location.host}`);
@@ -366,6 +369,16 @@
   ws.onmessage = (event) => {
     let msg;
     try { msg = JSON.parse(event.data); } catch { return; }
+
+    if (msg.type === "memory_greeting") {
+      pendingGreeting = msg.text;
+      // Show in context pane as a memory card
+      const el = document.createElement("div");
+      el.className = "ctx-turn ctx-memory";
+      el.innerHTML = `<span class="ctx-role">Memory</span><span class="ctx-text">${escapeHtml(msg.text)}</span>`;
+      contextBox.appendChild(el);
+      contextBox.scrollTop = contextBox.scrollHeight;
+    }
 
     if (msg.type === "thinking") {
       setVoiceStatus("Agent thinking…");
@@ -515,7 +528,18 @@
     active = true;
     startBtn.disabled = true;
     stopBtn.disabled = false;
-    listen();
+    if (pendingGreeting) {
+      // Speak memory greeting first, then start listening
+      orb.className = "speaking";
+      setVoiceStatus("Agent speaking…");
+      speak(pendingGreeting, () => {
+        orb.className = "";
+        pendingGreeting = null;
+        if (active) listen();
+      });
+    } else {
+      listen();
+    }
   }
 
   function endSession() {

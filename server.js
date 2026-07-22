@@ -7,6 +7,7 @@ import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
+import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting } from "./memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -135,11 +136,52 @@ async function fetchToolData(text, sendLog) {
 
 wss.on("connection", (ws) => {
   const sessionId = Date.now().toString();
+  const sessionStartedAt = new Date().toISOString();
   conversationHistory.set(sessionId, []);
+
+  // Load episodic memory and greet user
+  const recentSessions = getRecentSessions();
+  const memoryContext = buildMemoryContext(recentSessions);
+  const greeting = buildGreeting(recentSessions);
+  if (greeting) {
+    ws.send(JSON.stringify({ type: "memory_greeting", text: greeting }));
+    slog("MEMORY: Sent greeting from", recentSessions.length, "past session(s)");
+  }
+
+  const SYSTEM_PROMPT =
+    "You are a helpful, friendly voice assistant. " +
+    "When tool data is provided in [Tool data - ...] brackets, use it to answer accurately and concisely. " +
+    "Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud." +
+    memoryContext;
 
   const sendLog = (type, tool, input) => {
     ws.send(JSON.stringify({ type, tool, input }));
   };
+
+  // Summarise the session and persist to episodic memory
+  async function persistMemory() {
+    const history = conversationHistory.get(sessionId) || [];
+    if (history.length < 2) return; // nothing worth saving
+    try {
+      const transcript = history
+        .map(m => `${m.role === "user" ? "User" : "Agent"}: ${m.content.slice(0, 300)}`)
+        .join("\n");
+      const res = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 200,
+        system: 'Summarise this conversation in 1-2 sentences. Then on a new line write "TOPICS:" followed by up to 5 comma-separated key topics. Be concise.',
+        messages: [{ role: "user", content: transcript }],
+      });
+      const raw = res.content[0]?.text?.trim() || "";
+      const [summaryPart, topicsPart] = raw.split(/\nTOPICS:/i);
+      const summary = summaryPart?.trim() || "General conversation.";
+      const topics = topicsPart ? topicsPart.split(",").map(t => t.trim()).filter(Boolean) : [];
+      saveSession({ id: sessionId, startedAt: sessionStartedAt, endedAt: new Date().toISOString(), summary, topics });
+      slog("MEMORY: Session saved —", summary.slice(0, 80));
+    } catch (e) {
+      slog("MEMORY ERROR:", e.message);
+    }
+  }
 
   ws.on("message", async (data) => {
     let payload;
@@ -155,11 +197,10 @@ wss.on("connection", (ws) => {
 
       try {
         // 1. Check if a tool should be called
-        slog("TOOL CHECK for:", userText);
         const toolResult = await fetchToolData(userText, sendLog);
         if (toolResult) slog("TOOL RESULT:", toolResult.tool, "=>", toolResult.data.slice(0, 120));
 
-        // 2. Build the message — inject tool data into context if available
+        // 2. Build the message — inject tool data if available
         let userContent = userText;
         if (toolResult) {
           userContent = `${userText}\n\n[Tool data - ${toolResult.tool}]: ${toolResult.data}`;
@@ -168,11 +209,10 @@ wss.on("connection", (ws) => {
         history.push({ role: "user", content: userContent });
 
         // 3. Stream Claude's response
-        slog("CALLING Claude API, model=claude-haiku-4-5-20251001, baseURL=", baseURL);
         const stream = await client.messages.stream({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
-          system: "You are a helpful, friendly voice assistant. When tool data is provided in [Tool data - ...] brackets, use it to answer the user's question accurately and concisely. Keep responses conversational — 1-3 sentences, no markdown, no bullet points, since your response will be spoken aloud.",
+          system: SYSTEM_PROMPT,
           messages: history,
         });
 
@@ -206,7 +246,10 @@ wss.on("connection", (ws) => {
     }
   });
 
-  ws.on("close", () => conversationHistory.delete(sessionId));
+  ws.on("close", async () => {
+    await persistMemory();
+    conversationHistory.delete(sessionId);
+  });
 });
 
 const PORT = process.env.PORT || 3000;
