@@ -624,10 +624,12 @@
   // Keep utterance in module scope — Chrome GCs local utterances before onend fires
   let _currentUtterance = null;
   let _ttsTimeout = null;
+  let _ttsOnEnd = null; // current speak() completion callback
 
   function speak(text, onEnd) {
     window.speechSynthesis.cancel();
     clearTimeout(_ttsTimeout);
+    _ttsOnEnd = onEnd;
 
     _currentUtterance = new SpeechSynthesisUtterance(text);
     _currentUtterance.rate = 1.05;
@@ -635,7 +637,9 @@
     const finish = () => {
       clearTimeout(_ttsTimeout);
       _currentUtterance = null;
-      if (onEnd) onEnd();
+      const cb = _ttsOnEnd;
+      _ttsOnEnd = null;
+      if (cb) cb();
     };
 
     _currentUtterance.onend   = () => { log("warn", "TTS", "onend fired"); finish(); };
@@ -654,6 +658,81 @@
         finish();
       }
     }, estimatedMs);
+  }
+
+  // ── Barge-in: mic volume monitor while agent is speaking ──────────────────────
+  // Uses Web Audio API to watch mic amplitude. When user speaks over the agent,
+  // TTS is cancelled and recognition starts immediately.
+  let _bargeAudioCtx = null;
+  let _bargeMicStream = null;
+  let _bargeAnalyser = null;
+  let _bargeRafId = null;
+  let _bargeTriggeredAt = 0; // timestamp when volume first exceeded threshold
+
+  const BARGE_THRESHOLD = 18;   // RMS out of 0–128; tune up to reduce false triggers
+  const BARGE_HOLD_MS   = 120;  // must sustain above threshold for this long
+
+  async function startBargeMonitor() {
+    if (_bargeAudioCtx) return; // already running
+    try {
+      _bargeMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      _bargeAudioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+      const source    = _bargeAudioCtx.createMediaStreamSource(_bargeMicStream);
+      _bargeAnalyser  = _bargeAudioCtx.createAnalyser();
+      _bargeAnalyser.fftSize = 256;
+      source.connect(_bargeAnalyser);
+      _bargeRafId = requestAnimationFrame(bargeLoop);
+      log("warn", "BARGE", "Barge-in monitor started");
+    } catch (e) {
+      log("warn", "BARGE", "Could not start barge monitor: " + e.message);
+    }
+  }
+
+  function stopBargeMonitor() {
+    if (_bargeRafId) { cancelAnimationFrame(_bargeRafId); _bargeRafId = null; }
+    if (_bargeMicStream) { _bargeMicStream.getTracks().forEach(t => t.stop()); _bargeMicStream = null; }
+    if (_bargeAudioCtx) { try { _bargeAudioCtx.close(); } catch(e) {} _bargeAudioCtx = null; }
+    _bargeAnalyser = null;
+    _bargeTriggeredAt = 0;
+  }
+
+  function bargeLoop() {
+    if (!_bargeAnalyser) return;
+    _bargeRafId = requestAnimationFrame(bargeLoop);
+
+    // Only act during agent-speaking phase
+    if (!_currentUtterance || orb.className !== "speaking") {
+      _bargeTriggeredAt = 0;
+      return;
+    }
+
+    const buf = new Uint8Array(_bargeAnalyser.frequencyBinCount);
+    _bargeAnalyser.getByteTimeDomainData(buf);
+
+    // Compute RMS
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = buf[i] - 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / buf.length);
+
+    if (rms > BARGE_THRESHOLD) {
+      if (_bargeTriggeredAt === 0) _bargeTriggeredAt = performance.now();
+      if (performance.now() - _bargeTriggeredAt >= BARGE_HOLD_MS) {
+        log("warn", "BARGE", `Barge-in! RMS=${rms.toFixed(1)} — cutting TTS`);
+        _bargeTriggeredAt = 0;
+        // Cancel TTS and steal its onEnd so speak() doesn't restart the mic
+        clearTimeout(_ttsTimeout);
+        _ttsOnEnd = null;
+        _currentUtterance = null;
+        window.speechSynthesis.cancel();
+        orb.className = "";
+        if (active) listen();
+      }
+    } else {
+      _bargeTriggeredAt = 0;
+    }
   }
 
   // ── Voice ──────────────────────────────────────────────────────────────────────
@@ -722,6 +801,7 @@
     lastSource = "voice"; // ensure agent speaks on first response
     startBtn.disabled = true;
     stopBtn.disabled = false;
+    startBargeMonitor(); // start mic volume watcher for barge-in
     const greeting = pendingGreeting;
     pendingGreeting = null; // clear immediately — re-start never replays
     if (greeting) {
@@ -741,6 +821,7 @@
   function endSession() {
     active = false;
     stopMic();
+    stopBargeMonitor();
     window.speechSynthesis.cancel();
     orb.className = "";
     startBtn.disabled = false;
