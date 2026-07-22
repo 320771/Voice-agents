@@ -334,15 +334,6 @@
         <button id="start-btn">Start</button>
         <button id="stop-btn" disabled>Stop</button>
       </div>
-      <select id="voice-select" title="TTS Voice" style="margin-top:8px;width:100%;font-size:0.75rem;background:#1a1a2e;color:#c8c8d8;border:1px solid #333;border-radius:6px;padding:4px 6px;">
-        <option value="en-IN-NeerjaNeural">Neerja — English IN ♀</option>
-        <option value="en-IN-PrabhatNeural">Prabhat — English IN ♂</option>
-        <option value="hi-IN-SwaraNeural">Swara — Hindi ♀</option>
-        <option value="hi-IN-MadhurNeural">Madhur — Hindi ♂</option>
-        <option value="en-US-AriaNeural">Aria — English US ♀</option>
-        <option value="en-US-GuyNeural">Guy — English US ♂</option>
-        <option value="en-GB-SoniaNeural">Sonia — English UK ♀</option>
-      </select>
     </div>
   </div>
 
@@ -383,7 +374,6 @@
   const voiceStatus     = document.getElementById("voice-status");
   const startBtn        = document.getElementById("start-btn");
   const stopBtn         = document.getElementById("stop-btn");
-  const voiceSelect     = document.getElementById("voice-select");
   const chatMessages    = document.getElementById("chat-messages");
   const chatInput       = document.getElementById("chat-input");
   const sendBtn         = document.getElementById("send-btn");
@@ -661,131 +651,56 @@
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
   });
 
-  // ── TTS — Edge Neural TTS via /api/tts ────────────────────────────────────────
-  let _ttsAudio = null;   // current HTMLAudioElement
-  let _ttsOnEnd = null;   // current completion callback
+  // ── TTS — Web Speech API ──────────────────────────────────────────────────────
+  // Utterance stored at module scope — Chrome GCs local utterances before onend fires
+  let _currentUtterance = null;
+  let _ttsTimeout = null;
+  let _ttsOnEnd = null;
   let _ttsPlaying = false;
-  let selectedVoice = localStorage.getItem("va_tts_voice") || "en-IN-NeerjaNeural";
-  voiceSelect.value = selectedVoice;
-  voiceSelect.addEventListener("change", () => {
-    selectedVoice = voiceSelect.value;
-    localStorage.setItem("va_tts_voice", selectedVoice);
-  });
-
-  // Edge TTS requires outbound WebSocket to Microsoft — disabled by default
-  // if behind a corporate proxy. Set to true only if confirmed reachable.
-  let _edgeTTSAvailable = localStorage.getItem("va_edge_tts") === "true";
-
-  // Keep fallback utterance at module scope to prevent Chrome GC bug
-  let _fbUtterance = null;
-
-  function speakFallback(text, onEnd) {
-    log("warn", "TTS", "Using Web Speech API fallback");
-    window.speechSynthesis.cancel();
-    _ttsPlaying = true;
-
-    _fbUtterance = new SpeechSynthesisUtterance(text);
-    _fbUtterance.rate = 1.05;
-
-    const done = () => {
-      _ttsPlaying = false;
-      _fbUtterance = null;
-      if (onEnd) onEnd();
-    };
-
-    // Attach handlers BEFORE speak()
-    let _fbTimeout = null;
-    _fbUtterance.onend   = () => { clearTimeout(_fbTimeout); done(); };
-    _fbUtterance.onerror = (e) => {
-      if (e.error === "interrupted" || e.error === "canceled") return; // expected on cancel
-      clearTimeout(_fbTimeout); done();
-    };
-
-    // Voice selection — voices may not be loaded yet on first call
-    const trySpeak = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => v.lang.startsWith("en-IN")) ||
-                        voices.find(v => v.lang.startsWith("en-US")) || null;
-      if (preferred && _fbUtterance) _fbUtterance.voice = preferred;
-      window.speechSynthesis.speak(_fbUtterance);
-      // Timeout fallback: Chrome sometimes never fires onend
-      _fbTimeout = setTimeout(() => {
-        window.speechSynthesis.cancel();
-        done();
-      }, Math.max(4000, text.length * 75));
-    };
-
-    // If voices not loaded yet, wait for them
-    if (window.speechSynthesis.getVoices().length > 0) {
-      trySpeak();
-    } else {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.onvoiceschanged = null;
-        trySpeak();
-      };
-      // Safety: if onvoiceschanged never fires, speak anyway after 300ms
-      setTimeout(() => { if (_ttsPlaying && _fbUtterance && !_fbUtterance.src) trySpeak(); }, 300);
-    }
-  }
 
   function speak(text, onEnd) {
-    stopTTS();
+    window.speechSynthesis.cancel();
+    clearTimeout(_ttsTimeout);
     _ttsOnEnd = onEnd;
     _ttsPlaying = true;
 
-    if (!_edgeTTSAvailable) { speakFallback(text, onEnd); return; }
+    _currentUtterance = new SpeechSynthesisUtterance(text);
+    _currentUtterance.rate = 1.05;
 
-    const audio = new Audio();
-    _ttsAudio = audio;
-
-    const finish = (reason) => {
-      if (!_ttsPlaying) return;
+    const finish = () => {
+      clearTimeout(_ttsTimeout);
       _ttsPlaying = false;
-      _ttsAudio = null;
-      log("warn", "TTS", "finished: " + reason);
+      _currentUtterance = null;
       const cb = _ttsOnEnd;
       _ttsOnEnd = null;
       if (cb) cb();
     };
 
-    audio.onended = () => finish("ended");
-    audio.onerror = (e) => { log("error", "TTS", "audio error"); finish("error"); };
+    _currentUtterance.onend   = () => { log("warn", "TTS", "onend fired"); finish(); };
+    _currentUtterance.onerror = (e) => {
+      if (e.error === "interrupted" || e.error === "canceled") return;
+      log("error", "TTS", e.error);
+      finish();
+    };
 
-    fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: selectedVoice }),
-    })
-      .then(res => {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.blob();
-      })
-      .then(blob => {
-        if (!_ttsPlaying) return;
-        if (blob.size < 100) throw new Error("empty audio blob");
-        audio.src = URL.createObjectURL(blob);
-        return audio.play();
-      })
-      .catch(e => {
-        log("error", "TTS", "Edge TTS failed: " + e.message + " — switching to fallback");
-        _edgeTTSAvailable = false;
-        _ttsPlaying = false;
-        _ttsAudio = null;
-        _ttsOnEnd = null;
-        speakFallback(text, onEnd);
-      });
+    window.speechSynthesis.speak(_currentUtterance);
+
+    // Fallback: Chrome sometimes never fires onend — estimate duration
+    const estimatedMs = Math.max(3000, text.length * 65);
+    _ttsTimeout = setTimeout(() => {
+      if (_currentUtterance) {
+        log("warn", "TTS", "onend timeout fallback");
+        finish();
+      }
+    }, estimatedMs);
   }
 
   function stopTTS() {
+    clearTimeout(_ttsTimeout);
     _ttsPlaying = false;
     _ttsOnEnd = null;
-    if (_ttsAudio) {
-      _ttsAudio.pause();
-      if (_ttsAudio.src) URL.revokeObjectURL(_ttsAudio.src);
-      _ttsAudio = null;
-    }
-    // Also cancel fallback Web Speech if active
-    if (_fbUtterance) { window.speechSynthesis.cancel(); _fbUtterance = null; }
+    _currentUtterance = null;
+    window.speechSynthesis.cancel();
   }
 
   // ── Barge-in via SpeechRecognition ───────────────────────────────────────────

@@ -7,7 +7,6 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fetch from "node-fetch";
 import fs from "fs";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { buildVectorStore, vectorDetectIntent } from "./intent-library.js";
 import { getRecentSessions, saveSession, buildMemoryContext, buildGreeting, listUsers,
          buildCrossSellContext, queueCrossSellOpportunities, getNextCrossSellOffer, markCrossSellPresented } from "./memory.js";
@@ -33,47 +32,6 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // ── Edge TTS endpoints ────────────────────────────────────────────────────────
 
-const DEFAULT_VOICE = "en-IN-NeerjaNeural";
-
-// GET /api/tts/voices — return curated voice list
-app.get("/api/tts/voices", (_req, res) => {
-  res.json([
-    { id: "en-IN-NeerjaNeural",   label: "Neerja — English IN ♀",  lang: "en-IN" },
-    { id: "en-IN-PrabhatNeural",  label: "Prabhat — English IN ♂",  lang: "en-IN" },
-    { id: "hi-IN-SwaraNeural",    label: "Swara — Hindi ♀",         lang: "hi-IN" },
-    { id: "hi-IN-MadhurNeural",   label: "Madhur — Hindi ♂",        lang: "hi-IN" },
-    { id: "en-US-AriaNeural",     label: "Aria — English US ♀",     lang: "en-US" },
-    { id: "en-US-GuyNeural",      label: "Guy — English US ♂",      lang: "en-US" },
-    { id: "en-GB-SoniaNeural",    label: "Sonia — English UK ♀",    lang: "en-GB" },
-  ]);
-});
-
-// POST /api/tts — synthesise text, return MP3
-// Fresh instance per request — avoids stale WebSocket state
-app.post("/api/tts", async (req, res) => {
-  const { text, voice = DEFAULT_VOICE } = req.body || {};
-  if (!text?.trim()) return res.status(400).json({ error: "text required" });
-
-  console.log(`[TTS] voice=${voice} len=${text.length} text="${text.slice(0, 60)}"`);
-  const tts = new MsEdgeTTS();
-  try {
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-    const readable = await tts.toStream(text);
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-store");
-    readable.pipe(res);
-    readable.on("error", (e) => {
-      console.error("[TTS] stream error:", e.message);
-      try { tts.close(); } catch(_) {}
-      if (!res.headersSent) res.status(500).json({ error: "TTS stream failed" });
-    });
-    res.on("finish", () => { try { tts.close(); } catch(_) {} });
-  } catch (e) {
-    console.error("[TTS] error:", e.message);
-    try { tts.close(); } catch(_) {}
-    if (!res.headersSent) res.status(500).json({ error: e.message });
-  }
-});
 
 // ── WhatsApp webhook ──────────────────────────────────────────────────────────
 
