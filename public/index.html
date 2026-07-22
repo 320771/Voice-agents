@@ -14,105 +14,92 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
     }
 
-    h1 {
-      font-size: 1.4rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      color: #a78bfa;
-      margin-bottom: 32px;
+    /* ── top bar ── */
+    header {
+      padding: 16px 28px;
+      border-bottom: 1px solid #1e1e2e;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; color: #a78bfa; }
+    header .dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; }
+    header .dot.alive { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+
+    /* ── two-column layout ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── LEFT: agent panel ── */
+    .agent-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px;
+      gap: 0;
     }
 
     #orb {
-      width: 120px;
-      height: 120px;
+      width: 110px;
+      height: 110px;
       border-radius: 50%;
       background: radial-gradient(circle at 40% 40%, #7c3aed, #4c1d95);
       box-shadow: 0 0 40px #7c3aed44;
       cursor: pointer;
-      transition: transform 0.15s, box-shadow 0.15s;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 2.2rem;
+      font-size: 2rem;
       user-select: none;
     }
+    #orb.listening { animation: pulse 1.2s ease-in-out infinite; box-shadow: 0 0 60px #7c3aedaa; }
+    #orb.speaking  { animation: bounce 0.6s ease-in-out infinite alternate; box-shadow: 0 0 60px #06b6d4aa; background: radial-gradient(circle at 40% 40%, #0891b2, #164e63); }
 
-    #orb.listening {
-      animation: pulse 1.2s ease-in-out infinite;
-      box-shadow: 0 0 60px #7c3aedaa;
-    }
-
-    #orb.speaking {
-      animation: bounce 0.6s ease-in-out infinite alternate;
-      box-shadow: 0 0 60px #06b6d4aa;
-      background: radial-gradient(circle at 40% 40%, #0891b2, #164e63);
-    }
-
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.08); }
-    }
-
-    @keyframes bounce {
-      0% { transform: scale(1); }
-      100% { transform: scale(1.05); }
-    }
+    @keyframes pulse  { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+    @keyframes bounce { 0%{transform:scale(1)} 100%{transform:scale(1.05)} }
 
     #status {
-      margin-top: 20px;
-      font-size: 0.85rem;
+      margin-top: 16px;
+      font-size: 0.82rem;
       color: #6b7280;
       letter-spacing: 0.03em;
-      min-height: 20px;
+      min-height: 18px;
+      text-align: center;
     }
 
     #transcript-box {
-      margin-top: 32px;
+      margin-top: 24px;
       width: 100%;
-      max-width: 560px;
+      max-width: 480px;
       background: #1a1a24;
       border: 1px solid #2d2d3d;
       border-radius: 12px;
-      padding: 16px 20px;
+      padding: 14px 18px;
       min-height: 80px;
-      max-height: 300px;
+      max-height: 260px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
 
-    .message {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .message .label {
-      font-size: 0.7rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .message.user .label { color: #a78bfa; }
+    .message { display: flex; flex-direction: column; gap: 2px; }
+    .message .label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .message.user .label      { color: #a78bfa; }
     .message.assistant .label { color: #06b6d4; }
-
-    .message .text {
-      font-size: 0.92rem;
-      line-height: 1.55;
-      color: #d1d5db;
-    }
+    .message .text { font-size: 0.88rem; line-height: 1.55; color: #d1d5db; }
 
     #controls {
-      margin-top: 24px;
+      margin-top: 20px;
       display: flex;
-      gap: 12px;
+      gap: 10px;
     }
 
     button {
@@ -125,202 +112,303 @@
       cursor: pointer;
       transition: background 0.15s, color 0.15s;
     }
+    button:hover:not(:disabled) { background: #252535; color: #e8e8f0; }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-    button:hover { background: #252535; color: #e8e8f0; }
-
-    #start-btn {
-      background: #4c1d95;
-      border-color: #7c3aed;
-      color: #e8e8f0;
-      font-size: 0.88rem;
-      padding: 10px 24px;
-    }
-
+    #start-btn { background: #4c1d95; border-color: #7c3aed; color: #e8e8f0; padding: 10px 22px; }
     #start-btn:hover:not(:disabled) { background: #5b21b6; }
+    #stop-btn:not(:disabled) { background: #7f1d1d; border-color: #ef4444; color: #fca5a5; }
 
-    #stop-btn:not(:disabled) {
-      background: #7f1d1d;
-      border-color: #ef4444;
-      color: #fca5a5;
+    /* ── RIGHT: log panel ── */
+    .log-panel {
+      width: 360px;
+      min-width: 300px;
+      background: #0a0a0f;
+      border-left: 1px solid #1e1e2e;
+      display: flex;
+      flex-direction: column;
     }
 
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .log-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e1e2e;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .log-header span { font-size: 0.75rem; font-weight: 600; color: #4b5563; letter-spacing: 0.08em; text-transform: uppercase; }
+    #clear-log { font-size: 0.7rem; padding: 3px 8px; }
+
+    #log-box {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.72rem;
+    }
+
+    .log-entry {
+      display: flex;
+      gap: 8px;
+      line-height: 1.5;
+    }
+    .log-entry .ts  { color: #374151; flex-shrink: 0; }
+    .log-entry .tag { flex-shrink: 0; font-weight: 700; width: 68px; }
+    .log-entry .msg { color: #9ca3af; word-break: break-word; }
+
+    .log-entry.info    .tag { color: #6366f1; }
+    .log-entry.success .tag { color: #22c55e; }
+    .log-entry.warn    .tag { color: #f59e0b; }
+    .log-entry.error   .tag { color: #ef4444; }
+    .log-entry.tool    .tag { color: #06b6d4; }
+    .log-entry.speech  .tag { color: #a78bfa; }
+    .log-entry.ws      .tag { color: #64748b; }
   </style>
 </head>
 <body>
+
+<header>
+  <div class="dot" id="ws-dot"></div>
   <h1>Voice Agent</h1>
+</header>
 
-  <div id="orb" title="Click to start conversation">🎙️</div>
-  <div id="status">Click Start to begin talking</div>
+<div class="layout">
 
-  <div id="transcript-box"></div>
+  <!-- LEFT: agent -->
+  <div class="agent-panel">
+    <div id="orb" title="Click to start">🎙️</div>
+    <div id="status">Click Start to begin talking</div>
 
-  <div id="controls">
-    <button id="start-btn">Start</button>
-    <button id="stop-btn" disabled>Stop</button>
-    <button id="reset-btn">Clear chat</button>
+    <div id="transcript-box"></div>
+
+    <div id="controls">
+      <button id="start-btn">Start</button>
+      <button id="stop-btn" disabled>Stop</button>
+      <button id="reset-btn">Clear chat</button>
+    </div>
   </div>
 
-  <script>
-    const orb = document.getElementById("orb");
-    const statusEl = document.getElementById("status");
-    const transcriptBox = document.getElementById("transcript-box");
-    const startBtn = document.getElementById("start-btn");
-    const stopBtn = document.getElementById("stop-btn");
-    const resetBtn = document.getElementById("reset-btn");
+  <!-- RIGHT: logs -->
+  <div class="log-panel">
+    <div class="log-header">
+      <span>Live Logs</span>
+      <button id="clear-log">Clear</button>
+    </div>
+    <div id="log-box"></div>
+  </div>
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      statusEl.textContent = "Speech recognition not supported. Use Chrome.";
+</div>
+
+<script>
+  // ── DOM refs ────────────────────────────────────────────────────────────────
+  const orb         = document.getElementById("orb");
+  const statusEl    = document.getElementById("status");
+  const transcriptBox = document.getElementById("transcript-box");
+  const startBtn    = document.getElementById("start-btn");
+  const stopBtn     = document.getElementById("stop-btn");
+  const resetBtn    = document.getElementById("reset-btn");
+  const logBox      = document.getElementById("log-box");
+  const wsDot       = document.getElementById("ws-dot");
+  const clearLogBtn = document.getElementById("clear-log");
+
+  // ── Logger ──────────────────────────────────────────────────────────────────
+  function log(type, tag, msg) {
+    const entry = document.createElement("div");
+    entry.className = `log-entry ${type}`;
+    const now = new Date();
+    const ts = now.toTimeString().slice(0,8);
+    entry.innerHTML = `<span class="ts">${ts}</span><span class="tag">[${tag}]</span><span class="msg">${escapeHtml(msg)}</span>`;
+    logBox.appendChild(entry);
+    logBox.scrollTop = logBox.scrollHeight;
+    // keep max 200 entries
+    while (logBox.children.length > 200) logBox.removeChild(logBox.firstChild);
+  }
+
+  clearLogBtn.addEventListener("click", () => logBox.innerHTML = "");
+
+  // ── WebSocket ───────────────────────────────────────────────────────────────
+  const ws = new WebSocket(`ws://${location.host}`);
+  let recognition = null;
+  let currentAssistantEl = null;
+  let active = false;
+
+  ws.onopen = () => {
+    wsDot.classList.add("alive");
+    log("success", "WS", "Connected to server");
+  };
+  ws.onclose = () => {
+    wsDot.classList.remove("alive");
+    log("error", "WS", "Disconnected from server");
+  };
+  ws.onerror = (e) => log("error", "WS", "WebSocket error");
+
+  ws.onmessage = (event) => {
+    let msg;
+    try { msg = JSON.parse(event.data); } catch { return; }
+
+    if (msg.type === "thinking") {
+      log("info", "AGENT", "Received speech — calling Claude API…");
+      setStatus("Agent is thinking…");
+      orb.className = "";
+      appendAssistantBubble();
     }
 
-    const ws = new WebSocket(`ws://${location.host}`);
-    let recognition = null;
-    let currentAssistantEl = null;
-    let active = false;
+    if (msg.type === "tool_call") {
+      log("tool", "TOOL", `Calling tool: ${msg.tool}${msg.input ? " → " + JSON.stringify(msg.input) : ""}`);
+      setStatus(`Fetching ${msg.tool.replace("get_","")}…`);
+    }
 
-    // ── WebSocket messages from server ──────────────────────────────
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+    if (msg.type === "token" && currentAssistantEl) {
+      currentAssistantEl.querySelector(".text").textContent += msg.text;
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
 
-      if (msg.type === "thinking") {
-        setStatus("Agent is thinking…");
+    if (msg.type === "done") {
+      log("success", "AGENT", `Response ready (${msg.fullText.length} chars) — speaking…`);
+      currentAssistantEl = null;
+      orb.className = "speaking";
+      setStatus("Agent speaking…");
+      speak(msg.fullText, () => {
+        if (active) {
+          log("speech", "MIC", "Agent done speaking — restarting mic");
+          listen();
+        }
+      });
+    }
+
+    if (msg.type === "error") {
+      log("error", "ERROR", msg.message || "Unknown error");
+      currentAssistantEl = null;
+      orb.className = "";
+      setStatus("Error — retrying…");
+      if (active) setTimeout(listen, 800);
+    }
+
+    if (msg.type === "reset_ok") {
+      log("info", "RESET", "Conversation history cleared");
+      transcriptBox.innerHTML = "";
+      setStatus(active ? "Listening… speak now" : "Click Start to begin talking");
+    }
+  };
+
+  // ── TTS ─────────────────────────────────────────────────────────────────────
+  function speak(text, onEnd) {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.05;
+    utter.onend = onEnd || null;
+    utter.onerror = (e) => { log("error", "TTS", "Speech synthesis error: " + e.error); if (onEnd) onEnd(); };
+    window.speechSynthesis.speak(utter);
+  }
+
+  // ── Mic (one utterance) ─────────────────────────────────────────────────────
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function listen() {
+    if (!active) return;
+    if (!SpeechRecognition) {
+      log("error", "MIC", "SpeechRecognition not supported — use Chrome");
+      setStatus("Use Chrome — Speech API not available");
+      return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    orb.className = "listening";
+    setStatus("Listening… speak now");
+    log("speech", "MIC", "Microphone opened — waiting for speech");
+
+    recognition.onresult = (e) => {
+      let interim = "", final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript;
+        else interim += e.results[i][0].transcript;
+      }
+      if (interim) setStatus("You: " + interim);
+      if (final) {
+        const text = final.trim();
+        log("speech", "USER", text);
+        appendUserMessage(text);
+        ws.send(JSON.stringify({ type: "user_speech", text }));
         orb.className = "";
-        appendAssistantBubble();
-      }
-
-      if (msg.type === "token" && currentAssistantEl) {
-        currentAssistantEl.querySelector(".text").textContent += msg.text;
-        transcriptBox.scrollTop = transcriptBox.scrollHeight;
-      }
-
-      if (msg.type === "done") {
-        currentAssistantEl = null;
-        orb.className = "speaking";
-        setStatus("Agent speaking…");
-        // speak the reply, then loop back to listening
-        speak(msg.fullText, () => {
-          if (active) listen(); // ← key: restart mic after agent finishes
-        });
-      }
-
-      if (msg.type === "error") {
-        currentAssistantEl = null;
-        orb.className = "";
-        setStatus("Error — retrying…");
-        if (active) setTimeout(listen, 800);
-      }
-
-      if (msg.type === "reset_ok") {
-        transcriptBox.innerHTML = "";
-        setStatus(active ? "Listening… speak now" : "Click Start to begin");
+        setStatus("Sending to agent…");
+        log("ws", "SEND", `Sent to server: "${text}"`);
       }
     };
 
-    // ── TTS ─────────────────────────────────────────────────────────
-    function speak(text, onEnd) {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1.05;
-      utter.onend = onEnd || null;
-      window.speechSynthesis.speak(utter);
-    }
+    recognition.onerror = (e) => {
+      log("warn", "MIC", `Recognition error: ${e.error}`);
+      if (e.error === "no-speech" && active) { listen(); return; }
+      if (e.error !== "aborted") setStatus("Mic error: " + e.error);
+    };
 
-    // ── Single listen turn (one utterance) ──────────────────────────
-    function listen() {
-      if (!active) return;
+    recognition.onend = () => {
+      if (active && orb.className === "listening") {
+        log("speech", "MIC", "No speech detected — retrying");
+        listen();
+      }
+    };
 
-      recognition = new SpeechRecognition();
-      recognition.lang = "en-US";
-      recognition.continuous = false;      // one utterance at a time
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+    recognition.start();
+  }
 
-      orb.className = "listening";
-      setStatus("Listening… speak now");
+  // ── Session control ─────────────────────────────────────────────────────────
+  function beginSession() {
+    log("info", "SESSION", "Session started");
+    active = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    listen();
+  }
 
-      recognition.onresult = (e) => {
-        let interim = "";
-        let final = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) final += e.results[i][0].transcript;
-          else interim += e.results[i][0].transcript;
-        }
-        if (interim) setStatus("You: " + interim);
-        if (final) {
-          appendUserMessage(final.trim());
-          ws.send(JSON.stringify({ type: "user_speech", text: final.trim() }));
-          orb.className = "";
-          setStatus("Agent is thinking…");
-        }
-      };
+  function endSession() {
+    log("info", "SESSION", "Session stopped by user");
+    active = false;
+    if (recognition) { recognition.abort(); recognition = null; }
+    window.speechSynthesis.cancel();
+    orb.className = "";
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus("Click Start to begin talking");
+  }
 
-      recognition.onerror = (e) => {
-        if (e.error === "no-speech" && active) { listen(); return; }
-        if (e.error !== "aborted") setStatus("Mic error: " + e.error);
-      };
+  orb.addEventListener("click", () => active ? endSession() : beginSession());
+  startBtn.addEventListener("click", beginSession);
+  stopBtn.addEventListener("click", endSession);
+  resetBtn.addEventListener("click", () => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
+  });
 
-      // onend fires when the utterance is done — only loop back if
-      // we haven't already sent speech to the agent (agent side handles that)
-      recognition.onend = () => {
-        // if orb is still "listening" it means no speech was captured → retry
-        if (active && orb.className === "listening") listen();
-      };
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+  function appendUserMessage(text) {
+    const el = document.createElement("div");
+    el.className = "message user";
+    el.innerHTML = `<span class="label">You</span><span class="text">${escapeHtml(text)}</span>`;
+    transcriptBox.appendChild(el);
+    transcriptBox.scrollTop = transcriptBox.scrollHeight;
+  }
 
-      recognition.start();
-    }
+  function appendAssistantBubble() {
+    const el = document.createElement("div");
+    el.className = "message assistant";
+    el.innerHTML = `<span class="label">Agent</span><span class="text"></span>`;
+    transcriptBox.appendChild(el);
+    transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    currentAssistantEl = el;
+  }
 
-    // ── Session control ─────────────────────────────────────────────
-    function beginSession() {
-      if (!SpeechRecognition) { setStatus("Use Chrome — Speech API not available"); return; }
-      active = true;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      listen();
-    }
+  function setStatus(text) { statusEl.textContent = text; }
 
-    function endSession() {
-      active = false;
-      if (recognition) { recognition.abort(); recognition = null; }
-      window.speechSynthesis.cancel();
-      orb.className = "";
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
-      setStatus("Click Start to begin talking");
-    }
-
-    orb.addEventListener("click", () => active ? endSession() : beginSession());
-    startBtn.addEventListener("click", beginSession);
-    stopBtn.addEventListener("click", endSession);
-
-    resetBtn.addEventListener("click", () => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
-    });
-
-    function appendUserMessage(text) {
-      const el = document.createElement("div");
-      el.className = "message user";
-      el.innerHTML = `<span class="label">You</span><span class="text">${escapeHtml(text)}</span>`;
-      transcriptBox.appendChild(el);
-      transcriptBox.scrollTop = transcriptBox.scrollHeight;
-    }
-
-    function appendAssistantBubble() {
-      const el = document.createElement("div");
-      el.className = "message assistant";
-      el.innerHTML = `<span class="label">Agent</span><span class="text"></span>`;
-      transcriptBox.appendChild(el);
-      transcriptBox.scrollTop = transcriptBox.scrollHeight;
-      currentAssistantEl = el;
-    }
-
-    function setStatus(text) {
-      statusEl.textContent = text;
-    }
-
-    function escapeHtml(str) {
-      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-  </script>
+  function escapeHtml(str) {
+    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+</script>
 </body>
 </html>
