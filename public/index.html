@@ -676,24 +676,56 @@
   // if behind a corporate proxy. Set to true only if confirmed reachable.
   let _edgeTTSAvailable = localStorage.getItem("va_edge_tts") === "true";
 
+  // Keep fallback utterance at module scope to prevent Chrome GC bug
+  let _fbUtterance = null;
+
   function speakFallback(text, onEnd) {
     log("warn", "TTS", "Using Web Speech API fallback");
-    _ttsPlaying = true;
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    // Pick a reasonable voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.lang.startsWith("en-IN")) ||
-                      voices.find(v => v.lang.startsWith("en-US") && v.localService) ||
-                      null;
-    if (preferred) u.voice = preferred;
-    const done = () => { _ttsPlaying = false; if (onEnd) onEnd(); };
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-    const t = setTimeout(() => { window.speechSynthesis.cancel(); done(); },
-                          Math.max(3000, text.length * 70));
-    u.onend   = () => { clearTimeout(t); done(); };
-    u.onerror = () => { clearTimeout(t); done(); };
+    _ttsPlaying = true;
+
+    _fbUtterance = new SpeechSynthesisUtterance(text);
+    _fbUtterance.rate = 1.05;
+
+    const done = () => {
+      _ttsPlaying = false;
+      _fbUtterance = null;
+      if (onEnd) onEnd();
+    };
+
+    // Attach handlers BEFORE speak()
+    let _fbTimeout = null;
+    _fbUtterance.onend   = () => { clearTimeout(_fbTimeout); done(); };
+    _fbUtterance.onerror = (e) => {
+      if (e.error === "interrupted" || e.error === "canceled") return; // expected on cancel
+      clearTimeout(_fbTimeout); done();
+    };
+
+    // Voice selection — voices may not be loaded yet on first call
+    const trySpeak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.lang.startsWith("en-IN")) ||
+                        voices.find(v => v.lang.startsWith("en-US")) || null;
+      if (preferred && _fbUtterance) _fbUtterance.voice = preferred;
+      window.speechSynthesis.speak(_fbUtterance);
+      // Timeout fallback: Chrome sometimes never fires onend
+      _fbTimeout = setTimeout(() => {
+        window.speechSynthesis.cancel();
+        done();
+      }, Math.max(4000, text.length * 75));
+    };
+
+    // If voices not loaded yet, wait for them
+    if (window.speechSynthesis.getVoices().length > 0) {
+      trySpeak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        trySpeak();
+      };
+      // Safety: if onvoiceschanged never fires, speak anyway after 300ms
+      setTimeout(() => { if (_ttsPlaying && _fbUtterance && !_fbUtterance.src) trySpeak(); }, 300);
+    }
   }
 
   function speak(text, onEnd) {
@@ -753,7 +785,7 @@
       _ttsAudio = null;
     }
     // Also cancel fallback Web Speech if active
-    if (!_edgeTTSAvailable) window.speechSynthesis.cancel();
+    if (_fbUtterance) { window.speechSynthesis.cancel(); _fbUtterance = null; }
   }
 
   // ── Barge-in via SpeechRecognition ───────────────────────────────────────────
