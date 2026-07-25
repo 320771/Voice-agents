@@ -55,17 +55,37 @@ app.post("/voicebox/stream", async (req, res) => {
   if (!text)       return res.status(400).json({ error: "text required" });
   if (!profile_id) return res.status(400).json({ error: "profile_id required" });
   try {
-    const body = { text, profile_id, language: language || "en" };
-    slog(`VOICEBOX: stream request profile=${profile_id} text="${text.slice(0, 60)}"`);
+    const body = { text, profile_id };
+    if (language) body.language = language;
+    slog(`VOICEBOX: stream request profile=${profile_id} body=${JSON.stringify(body).slice(0,120)}`);
+    // Try /generate/stream first; Voicebox also exposes /generate
     const r = await fetch(`${VOICEBOX_URL}/generate/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
+    if (r.status === 404) {
+      // Fallback: some Voicebox builds use /generate instead of /generate/stream
+      const r2 = await fetch(`${VOICEBOX_URL}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!r2.ok) {
+        const errBody = await r2.text().catch(() => "");
+        slog(`VOICEBOX ERROR /generate: HTTP ${r2.status} — ${errBody.slice(0, 300)}`);
+        return res.status(r2.status).json({ error: `Voicebox: ${errBody || r2.statusText}` });
+      }
+      res.setHeader("Content-Type", "audio/wav");
+      res.setHeader("Transfer-Encoding", "chunked");
+      r2.body.pipe(res);
+      return;
+    }
     if (!r.ok) {
       const errBody = await r.text().catch(() => "");
-      slog(`VOICEBOX ERROR: HTTP ${r.status} — ${errBody.slice(0, 200)}`);
+      slog(`VOICEBOX ERROR: HTTP ${r.status} — ${errBody.slice(0, 300)}`);
       return res.status(r.status).json({ error: `Voicebox: ${errBody || r.statusText}` });
     }
     res.setHeader("Content-Type", "audio/wav");

@@ -710,7 +710,11 @@
         body: JSON.stringify({ text, profile_id: profileId }),
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); detail += ` — ${j.error || JSON.stringify(j)}`; } catch {}
+        throw new Error(detail);
+      }
       const arrayBuf = await res.arrayBuffer();
       if (ctrl.signal.aborted) return;
 
