@@ -61,7 +61,7 @@ app.post("/voicebox/stream", async (req, res) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(120000), // first call loads model into memory
     });
     if (!r.ok) {
       const errBody = await r.text().catch(() => "");
