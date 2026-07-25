@@ -57,25 +57,51 @@ app.post("/voicebox/stream", async (req, res) => {
   try {
     const body = { text, profile_id };
     if (language) body.language = language;
-    slog(`VOICEBOX: stream request profile=${profile_id} body=${JSON.stringify(body).slice(0,120)}`);
-    // Use /generate (triggers model download on first call; returns WAV)
-    slog(`VOICEBOX: POST /generate profile=${profile_id}`);
-    const r = await fetch(`${VOICEBOX_URL}/generate`, {
+
+    // Step 1: queue the generation job
+    slog(`VOICEBOX: POST /generate profile=${profile_id} text="${text.slice(0,60)}"`);
+    const queueRes = await fetch(`${VOICEBOX_URL}/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60000), // first call may download the model
+      signal: AbortSignal.timeout(15000),
     });
-    if (!r.ok) {
-      const errBody = await r.text().catch(() => "");
-      slog(`VOICEBOX ERROR: HTTP ${r.status} — ${errBody.slice(0, 300)}`);
-      return res.status(r.status).json({ error: `Voicebox: ${errBody || r.statusText}` });
+    if (!queueRes.ok) {
+      const errBody = await queueRes.text().catch(() => "");
+      slog(`VOICEBOX ERROR (queue): HTTP ${queueRes.status} — ${errBody.slice(0, 300)}`);
+      return res.status(queueRes.status).json({ error: `Voicebox: ${errBody || queueRes.statusText}` });
     }
-    const ct = r.headers.get("content-type") || "unknown";
-    slog(`VOICEBOX: response content-type=${ct}`);
-    res.setHeader("Content-Type", ct);
-    res.setHeader("Transfer-Encoding", "chunked");
-    r.body.pipe(res);
+    const job = await queueRes.json();
+    const jobId = job.id;
+    if (!jobId) {
+      slog(`VOICEBOX ERROR: no job id in response: ${JSON.stringify(job).slice(0,200)}`);
+      return res.status(500).json({ error: "Voicebox: no job id returned" });
+    }
+    slog(`VOICEBOX: job queued id=${jobId}, polling...`);
+
+    // Step 2: poll GET /generate/{id} until audio is ready
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 500));
+      const pollRes = await fetch(`${VOICEBOX_URL}/generate/${jobId}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!pollRes.ok) {
+        slog(`VOICEBOX: poll HTTP ${pollRes.status} for job ${jobId}`);
+        continue;
+      }
+      const ct = pollRes.headers.get("content-type") || "";
+      if (ct.includes("audio") || ct.includes("octet-stream") || ct.includes("wav") || ct.includes("mpeg")) {
+        slog(`VOICEBOX: audio ready content-type=${ct}`);
+        res.setHeader("Content-Type", ct || "audio/wav");
+        pollRes.body.pipe(res);
+        return;
+      }
+      // Still JSON (status/pending) — log and keep polling
+      const status = await pollRes.json().catch(() => ({}));
+      slog(`VOICEBOX: job status=${JSON.stringify(status).slice(0,100)}`);
+    }
+    return res.status(504).json({ error: "Voicebox: timed out waiting for audio" });
   } catch (e) {
     slog(`VOICEBOX ERROR: ${e.message}`);
     res.status(503).json({ error: "Voicebox not running" });
