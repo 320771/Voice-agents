@@ -531,6 +531,7 @@
     }
 
     if (msg.type === "thinking") {
+      resetTtsStream(); // clear any leftover sentence buffer from previous turn
       setVoiceStatus("Agent thinking…");
       orb.className = "";
       if (lastSource !== "voice") appendAssistantBubble();
@@ -576,6 +577,9 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
       appendContextToken(msg.text);
+      // Sentence-streaming TTS: speak each sentence as it arrives
+      if (lastSource === "voice") streamTtsBuffer += msg.text;
+      flushSentences(false);
     }
 
     if (msg.type === "done") {
@@ -584,11 +588,13 @@
       setSendEnabled(true);
 
       if (lastSource === "voice") {
+        flushSentences(true); // speak any remaining text
         orb.className = "speaking";
         setVoiceStatus("Agent speaking…");
-        startBargeMonitor(); // listen for user interruption while TTS plays
-        speak(msg.fullText, () => {
-          stopBargeMonitor(); // TTS finished naturally — stop barge SR
+        startBargeMonitor();
+        // Wait for the sentence queue to finish, then restart mic
+        waitForTtsQueue(() => {
+          stopBargeMonitor();
           orb.className = "";
           if (active) {
             setVoiceStatus("Starting mic…");
@@ -598,7 +604,6 @@
           }
         });
       } else {
-        // chat: no speaking — if voice session is on, restart mic
         if (active) {
           setTimeout(() => { if (active) listen(); }, 300);
         } else {
@@ -673,6 +678,52 @@
   let _vbSource    = null;
   let _vbAbort     = null;
 
+  // ── Sentence-streaming TTS queue ─────────────────────────────────────────────
+  let streamTtsBuffer = "";       // accumulates tokens mid-stream
+  let _ttsQueue       = [];       // sentences waiting to be spoken
+  let _ttsQueuePlaying = false;
+  let _ttsQueueDoneCallback = null;
+
+  function flushSentences(force) {
+    // Split buffer on sentence-ending punctuation
+    const re = /[^.!?\n]+[.!?\n]+/g;
+    let m, last = 0;
+    while ((m = re.exec(streamTtsBuffer)) !== null) {
+      const sentence = m[0].trim();
+      if (sentence.length > 3) _ttsQueue.push(sentence);
+      last = m.index + m[0].length;
+    }
+    streamTtsBuffer = streamTtsBuffer.slice(last);
+    if (force && streamTtsBuffer.trim().length > 3) {
+      _ttsQueue.push(streamTtsBuffer.trim());
+      streamTtsBuffer = "";
+    }
+    drainTtsQueue();
+  }
+
+  function drainTtsQueue() {
+    if (_ttsQueuePlaying || !_ttsQueue.length) return;
+    _ttsQueuePlaying = true;
+    const sentence = _ttsQueue.shift();
+    speak(sentence, () => {
+      _ttsQueuePlaying = false;
+      if (_ttsQueue.length) drainTtsQueue();
+      else if (_ttsQueueDoneCallback) { _ttsQueueDoneCallback(); _ttsQueueDoneCallback = null; }
+    });
+  }
+
+  function waitForTtsQueue(cb) {
+    if (!_ttsQueuePlaying && !_ttsQueue.length) { cb(); return; }
+    _ttsQueueDoneCallback = cb;
+  }
+
+  function resetTtsStream() {
+    streamTtsBuffer = "";
+    _ttsQueue = [];
+    _ttsQueuePlaying = false;
+    _ttsQueueDoneCallback = null;
+  }
+
   // Fetch Voicebox profiles and populate selector
   async function loadVoiceboxProfiles() {
     try {
@@ -690,9 +741,8 @@
         voiceSelect.appendChild(opt);
         log("info", "TTS", `Voicebox profile: "${p.name}" (id=${p.id})`);
       });
-      // Auto-select first Voicebox profile
-      voiceSelect.selectedIndex = 1;
-      log("info", "TTS", `Voicebox connected — ${profiles.length} profile(s) loaded`);
+      // Keep browser TTS as default — user can switch to Voicebox manually
+      log("info", "TTS", `Voicebox connected — ${profiles.length} profile(s) loaded (select in Voice dropdown for higher quality)`);
     } catch {
       log("info", "TTS", "Voicebox not running — using browser TTS");
     }
@@ -796,6 +846,7 @@
   }
 
   function stopTTS() {
+    resetTtsStream(); // clear sentence queue on interruption
     // Stop Voicebox
     if (_vbAbort) { _vbAbort.abort(); _vbAbort = null; }
     if (_vbSource) { try { _vbSource.stop(); } catch(e) {} _vbSource = null; }
