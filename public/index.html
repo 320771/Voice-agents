@@ -679,16 +679,20 @@
       const res = await fetch("/voicebox/profiles");
       if (!res.ok) return;
       const profiles = await res.json();
-      if (!profiles?.length) return;
+      if (!Array.isArray(profiles) || !profiles.length) {
+        log("info", "TTS", "Voicebox running but no profiles found — create one in the Voicebox app");
+        return;
+      }
       profiles.forEach(p => {
         const opt = document.createElement("option");
-        opt.value = p.id;
+        opt.value = p.id;           // real DB id string
         opt.textContent = p.name || p.id;
         voiceSelect.appendChild(opt);
+        log("info", "TTS", `Voicebox profile: "${p.name}" (id=${p.id})`);
       });
       // Auto-select first Voicebox profile
-      if (voiceSelect.options.length > 1) voiceSelect.selectedIndex = 1;
-      log("info", "TTS", `Voicebox connected — ${profiles.length} voice(s) available`);
+      voiceSelect.selectedIndex = 1;
+      log("info", "TTS", `Voicebox connected — ${profiles.length} profile(s) loaded`);
     } catch {
       log("info", "TTS", "Voicebox not running — using browser TTS");
     }

@@ -52,19 +52,27 @@ app.get("/voicebox/profiles", async (req, res) => {
 // Stream WAV audio for given text + profile
 app.post("/voicebox/stream", async (req, res) => {
   const { text, profile_id, language } = req.body;
-  if (!text) return res.status(400).json({ error: "text required" });
+  if (!text)       return res.status(400).json({ error: "text required" });
+  if (!profile_id) return res.status(400).json({ error: "profile_id required" });
   try {
+    const body = { text, profile_id, language: language || "en" };
+    slog(`VOICEBOX: stream request profile=${profile_id} text="${text.slice(0, 60)}"`);
     const r = await fetch(`${VOICEBOX_URL}/generate/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, profile_id: profile_id || null, language: language || "en" }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
-    if (!r.ok) return res.status(r.status).json({ error: "Voicebox generation failed" });
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => "");
+      slog(`VOICEBOX ERROR: HTTP ${r.status} — ${errBody.slice(0, 200)}`);
+      return res.status(r.status).json({ error: `Voicebox: ${errBody || r.statusText}` });
+    }
     res.setHeader("Content-Type", "audio/wav");
     res.setHeader("Transfer-Encoding", "chunked");
     r.body.pipe(res);
   } catch (e) {
+    slog(`VOICEBOX ERROR: ${e.message}`);
     res.status(503).json({ error: "Voicebox not running" });
   }
 });
