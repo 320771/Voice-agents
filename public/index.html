@@ -704,6 +704,8 @@
   function drainTtsQueue() {
     if (_ttsQueuePlaying || !_ttsQueue.length) return;
     _ttsQueuePlaying = true;
+    // Start barge monitor as soon as first sentence begins playing
+    if (lastSource === "voice" && !_bargeSR) startBargeMonitor();
     const sentence = _ttsQueue.shift();
     speak(sentence, () => {
       _ttsQueuePlaying = false;
@@ -875,7 +877,8 @@
 
     r.onresult = (e) => {
       if (_bargeSR !== r) return;
-      if (!_ttsPlaying) return;
+      // Trigger on any speech while TTS is playing OR sentence queue still has items
+      if (!_ttsPlaying && !_ttsQueuePlaying && !_ttsQueue.length) return;
 
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i];
@@ -896,7 +899,7 @@
         stopBargeMonitor();
         stopTTS();
         orb.className = "";
-        setTimeout(() => { if (active) listen(); }, 150);
+        setTimeout(() => { if (active) listen(); }, 300);
         return;
       }
     };
