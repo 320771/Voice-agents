@@ -320,6 +320,14 @@
       <button class="change-btn" id="name-change-btn" title="Change user">✕</button>
     </div>
   </div>
+
+  <!-- voice engine selector -->
+  <div class="name-area" style="margin-left:12px;gap:6px;">
+    <label for="voice-select" style="font-size:0.7rem;color:#4b5563;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">Voice</label>
+    <select id="voice-select" style="background:#1a1a24;border:1px solid #2d2d3d;color:#e8e8f0;border-radius:6px;padding:4px 8px;font-size:0.75rem;max-width:160px;">
+      <option value="browser">Browser (default)</option>
+    </select>
+  </div>
 </header>
 
 <div class="layout">
@@ -651,19 +659,85 @@
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
   });
 
-  // ── TTS — Web Speech API ──────────────────────────────────────────────────────
-  // Utterance stored at module scope — Chrome GCs local utterances before onend fires
-  let _currentUtterance = null;
-  let _ttsTimeout = null;
-  let _ttsOnEnd = null;
-  let _ttsPlaying = false;
-  let _ttsHeartbeat = null; // workaround for Chrome 15s silent-stop bug
+  // ── TTS — Voicebox (primary) + Web Speech API (fallback) ─────────────────────
+  const voiceSelect = document.getElementById("voice-select");
 
-  function speak(text, onEnd) {
+  let _ttsOnEnd    = null;
+  let _ttsPlaying  = false;
+  // Web Speech fallback state
+  let _currentUtterance = null;
+  let _ttsTimeout  = null;
+  let _ttsHeartbeat = null;
+  // Voicebox state
+  let _vbAudioCtx  = null;
+  let _vbSource    = null;
+  let _vbAbort     = null;
+
+  // Fetch Voicebox profiles and populate selector
+  async function loadVoiceboxProfiles() {
+    try {
+      const res = await fetch("/voicebox/profiles");
+      if (!res.ok) return;
+      const profiles = await res.json();
+      if (!profiles?.length) return;
+      profiles.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name || p.id;
+        voiceSelect.appendChild(opt);
+      });
+      // Auto-select first Voicebox profile
+      if (voiceSelect.options.length > 1) voiceSelect.selectedIndex = 1;
+      log("info", "TTS", `Voicebox connected — ${profiles.length} voice(s) available`);
+    } catch {
+      log("info", "TTS", "Voicebox not running — using browser TTS");
+    }
+  }
+  loadVoiceboxProfiles();
+
+  // ── Voicebox WAV playback via Web Audio API ──────────────────────────────────
+  async function speakVoicebox(text, profileId, onEnd) {
+    const ctrl = new AbortController();
+    _vbAbort = ctrl;
+    try {
+      const res = await fetch("/voicebox/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, profile_id: profileId }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const arrayBuf = await res.arrayBuffer();
+      if (ctrl.signal.aborted) return;
+
+      if (!_vbAudioCtx || _vbAudioCtx.state === "closed") {
+        _vbAudioCtx = new AudioContext();
+      }
+      const decoded = await _vbAudioCtx.decodeAudioData(arrayBuf);
+      if (ctrl.signal.aborted) return;
+
+      _vbSource = _vbAudioCtx.createBufferSource();
+      _vbSource.buffer = decoded;
+      _vbSource.connect(_vbAudioCtx.destination);
+      _vbSource.onended = () => {
+        _ttsPlaying = false;
+        _vbSource = null;
+        if (onEnd) onEnd();
+      };
+      _vbSource.start();
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      log("warn", "TTS", `Voicebox error: ${e.message} — falling back to browser`);
+      _ttsPlaying = false;
+      speakBrowser(text, onEnd); // fallback
+    }
+  }
+
+  // ── Browser Web Speech API (fallback) ────────────────────────────────────────
+  function speakBrowser(text, onEnd) {
     window.speechSynthesis.cancel();
     clearTimeout(_ttsTimeout);
     clearInterval(_ttsHeartbeat);
-    _ttsOnEnd = onEnd;
     _ttsPlaying = true;
 
     _currentUtterance = new SpeechSynthesisUtterance(text);
@@ -674,45 +748,48 @@
       clearInterval(_ttsHeartbeat);
       _ttsPlaying = false;
       _currentUtterance = null;
-      const cb = _ttsOnEnd;
-      _ttsOnEnd = null;
-      if (cb) cb();
+      if (onEnd) onEnd();
     };
-
-    _currentUtterance.onend   = () => { log("warn", "TTS", "onend fired"); finish(); };
+    _currentUtterance.onend = () => finish();
     _currentUtterance.onerror = (e) => {
       if (e.error === "interrupted" || e.error === "canceled") return;
-      log("error", "TTS", e.error);
-      finish();
+      log("error", "TTS", e.error); finish();
     };
-
     window.speechSynthesis.speak(_currentUtterance);
-
-    // Chrome 15-second bug: speechSynthesis silently stops after ~14s.
-    // Safer fix: resume() only (no pause) every 12s — avoids triggering onend.
     _ttsHeartbeat = setInterval(() => {
       if (!_ttsPlaying) { clearInterval(_ttsHeartbeat); return; }
       if (window.speechSynthesis.paused) window.speechSynthesis.resume();
     }, 12000);
-
-    // Hard timeout fallback: generous estimate so we never cut off mid-sentence.
-    // Chrome speaks ~12-14 chars/sec at rate 1.05 → ~80ms/char + 6s buffer.
     const estimatedMs = Math.max(6000, text.length * 120 + 6000);
     _ttsTimeout = setTimeout(() => {
-      if (_currentUtterance) {
-        log("warn", "TTS", "onend timeout fallback");
-        finish();
-      }
+      if (_currentUtterance) { log("warn", "TTS", "timeout fallback"); finish(); }
     }, estimatedMs);
   }
 
+  // ── Unified speak() — uses Voicebox if a profile is selected ─────────────────
+  function speak(text, onEnd) {
+    stopTTS();
+    _ttsOnEnd = onEnd;
+    _ttsPlaying = true;
+    const profileId = voiceSelect.value;
+    if (profileId && profileId !== "browser") {
+      speakVoicebox(text, profileId, onEnd);
+    } else {
+      speakBrowser(text, onEnd);
+    }
+  }
+
   function stopTTS() {
+    // Stop Voicebox
+    if (_vbAbort) { _vbAbort.abort(); _vbAbort = null; }
+    if (_vbSource) { try { _vbSource.stop(); } catch(e) {} _vbSource = null; }
+    // Stop browser TTS
     clearTimeout(_ttsTimeout);
     clearInterval(_ttsHeartbeat);
+    window.speechSynthesis.cancel();
+    _currentUtterance = null;
     _ttsPlaying = false;
     _ttsOnEnd = null;
-    _currentUtterance = null;
-    window.speechSynthesis.cancel();
   }
 
   // ── Barge-in via SpeechRecognition ───────────────────────────────────────────

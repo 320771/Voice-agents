@@ -31,6 +31,44 @@ const client = new Anthropic({
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// ── Voicebox TTS proxy ───────────────────────────────────────────────────────
+// Proxies to a locally-running Voicebox instance (http://127.0.0.1:17493).
+// Falls back gracefully if Voicebox is not running.
+
+const VOICEBOX_URL = process.env.VOICEBOX_URL || "http://127.0.0.1:17493";
+
+// List available voice profiles
+app.get("/voicebox/profiles", async (req, res) => {
+  try {
+    const r = await fetch(`${VOICEBOX_URL}/profiles`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return res.status(r.status).json({ error: "Voicebox unavailable" });
+    const profiles = await r.json();
+    res.json(profiles);
+  } catch {
+    res.status(503).json({ error: "Voicebox not running" });
+  }
+});
+
+// Stream WAV audio for given text + profile
+app.post("/voicebox/stream", async (req, res) => {
+  const { text, profile_id, language } = req.body;
+  if (!text) return res.status(400).json({ error: "text required" });
+  try {
+    const r = await fetch(`${VOICEBOX_URL}/generate/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, profile_id: profile_id || null, language: language || "en" }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) return res.status(r.status).json({ error: "Voicebox generation failed" });
+    res.setHeader("Content-Type", "audio/wav");
+    res.setHeader("Transfer-Encoding", "chunked");
+    r.body.pipe(res);
+  } catch (e) {
+    res.status(503).json({ error: "Voicebox not running" });
+  }
+});
+
 // ── Edge TTS endpoints ────────────────────────────────────────────────────────
 
 
