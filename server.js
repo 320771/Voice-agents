@@ -71,7 +71,9 @@ app.post("/voicebox/stream", async (req, res) => {
       slog(`VOICEBOX ERROR: HTTP ${r.status} — ${errBody.slice(0, 300)}`);
       return res.status(r.status).json({ error: `Voicebox: ${errBody || r.statusText}` });
     }
-    res.setHeader("Content-Type", "audio/wav");
+    const ct = r.headers.get("content-type") || "unknown";
+    slog(`VOICEBOX: response content-type=${ct}`);
+    res.setHeader("Content-Type", ct);
     res.setHeader("Transfer-Encoding", "chunked");
     r.body.pipe(res);
   } catch (e) {

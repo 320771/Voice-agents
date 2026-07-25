@@ -715,8 +715,16 @@
         try { const j = await res.json(); detail += ` — ${j.error || JSON.stringify(j)}`; } catch {}
         throw new Error(detail);
       }
+      const ct = res.headers.get("content-type") || "unknown";
+      log("info", "TTS", `Voicebox response content-type: ${ct}`);
       const arrayBuf = await res.arrayBuffer();
       if (ctrl.signal.aborted) return;
+      // If response is JSON (not audio), log it and bail
+      if (ct.includes("json")) {
+        const txt = new TextDecoder().decode(arrayBuf);
+        log("warn", "TTS", `Voicebox returned JSON instead of audio: ${txt.slice(0,200)}`);
+        throw new Error("Voicebox returned JSON, not audio");
+      }
 
       if (!_vbAudioCtx || _vbAudioCtx.state === "closed") {
         _vbAudioCtx = new AudioContext();
