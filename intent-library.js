@@ -725,6 +725,12 @@ const TRAINING_DATA = [
 
 const PARAM_EXTRACTORS = {
   weather: (text) => {
+    const STOP = /^(about|the|please|tell|me|just|now|today|tomorrow|currently|really|very|so|and|or|is|it|what|how|can|you|give|check|show)$/i;
+    const clean = (s) => {
+      if (!s) return "";
+      const words = s.trim().split(/\s+/).filter(w => !STOP.test(w));
+      return words.join(" ").trim();
+    };
     const p = [
       /([A-Za-z]{3,25})\s+(?:ka|ki|ke|mein)\s+(?:weather|mausam|temperature|barish|baarish)/i,
       /(?:weather|mausam|temperature|forecast|barish|baarish)\s+(?:in|at|for|ka|mein)\s+([A-Za-z][A-Za-z\s]{2,20}?)(?:\s*[-,?]|$)/i,
@@ -732,7 +738,11 @@ const PARAM_EXTRACTORS = {
       /\b(?:currently in|i(?:'m| am) in|visiting)\s+([A-Za-z][a-z]{2,20})/i,
       /([A-Za-z][a-z]{2,20}(?:\s+[A-Za-z][a-z]{2,20})?)\s+(?:weather|mausam)/i,
     ];
-    for (const rx of p) { const m = text.match(rx); if (m?.[1]?.trim().length > 2) return m[1].trim(); }
+    for (const rx of p) {
+      const m = text.match(rx);
+      const city = clean(m?.[1]);
+      if (city.length > 2) return city;
+    }
     return "";
   },
   news: (text) => {
